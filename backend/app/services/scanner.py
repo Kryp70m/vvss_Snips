@@ -1171,7 +1171,7 @@ class ScannerService:
     def unsubscribe_alerts(self, queue: asyncio.Queue) -> None:
         self._alert_subscribers.discard(queue)
 
-    def subscribe_perp_rankings((self, queue: asyncio.Queue) -> None:
+    def subscribe_perp_rankings(self, queue: asyncio.Queue) -> None:
         self._perp_ranking_subscribers.add(queue)
 
     def unsubscribe_perp_rankings(self, queue: asyncio.Queue) -> None:
@@ -1226,3 +1226,13 @@ class ScannerService:
                     q.put_nowait(alert)
                 except Exception:
                     pass
+
+async def dispatch_to_subscribers(self, event: VolumeSurgeEvent) -> None:
+        """Broadcasts unified V2 data payloads to all active UI websockets."""
+        if not self._alert_subscribers:
+            return
+        for queue in list(self._alert_subscribers):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
