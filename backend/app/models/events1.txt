@@ -1,0 +1,31 @@
+from datetime import datetime
+from typing import Optional, Literal, Dict, Any
+from pydantic import BaseModel, Field
+
+class SMCMarketStructure(BaseModel):
+    """Defines Smart Money Concepts/ICT structural analysis metrics."""
+    trend_bias: Literal["BULLISH", "BEARISH", "NEUTRAL"]
+    has_bos: bool = False
+    has_choch: bool = False
+    fvg_detected: bool = False
+    fvg_top: Optional[float] = None
+    fvg_bottom: Optional[float] = None
+    order_block_detected: bool = False
+    ob_zone_high: Optional[float] = None
+    ob_zone_low: Optional[float] = None
+
+class VolumeSurgeEvent(BaseModel):
+    symbol: str
+    exchange: str
+    side: Literal["BUY", "SELL"]
+    price: float
+    raw_volume: float
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    
+    # New V2 SMC Layer Integration
+    confluences: Optional[SMCMarketStructure] = None
+    confidence_score: float = 0.0
+    entry_point: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    alert_reasoning: str = "Standard High Volume Surge Detected."
