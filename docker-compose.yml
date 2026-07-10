@@ -1,0 +1,67 @@
+volumes: 
+  - .\backend\app\ict_smc:/app/app/ict_smc:ro 
+version: '3.8'
+
+services:
+  # 1. Redis Cache Instance
+  redis-cache:
+    image: redis:7-alpine
+    container_name: sniper-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - sniper-network
+    restart: unless-stopped
+
+  # 2. Relational Database Instance
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: sniper-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=scanner_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sniper-network
+    restart: unless-stopped
+
+  # 3. FastAPI Core Engine
+  sniper:
+    image: alpha-sniper-backend:latest
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sniper-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ./admin.html:/admin.html
+      - ./spot-momentum-scanner.html:/spot-momentum-scanner.html
+      - ./ADMIN_PASSWORD.txt:/app/ADMIN_PASSWORD.txt
+      - ./ADMIN_PASSWORD.txt:/ADMIN_PASSWORD.txt
+    environment:
+      # Updated connection strings to route internally through Docker's DNS network
+      - DATABASE_URL=postgresql://postgres:password@postgres-db:5432/scanner_db
+      - REDIS_URL=redis://redis-cache:6379
+      - LOCAL_DEV_MODE=true
+      - DEV_PIN=123
+      - TELEGRAM_BOT_TOKEN=8721494793:AAF6BKVKyJZ0Lo80IVNll-FlNorJIpnkH1M
+      - TELEGRAM_CHAT_ID=-5554976734
+    depends_on:
+      - redis-cache
+      - postgres-db
+    networks:
+      - sniper-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  sniper-network:
+    driver: bridge
