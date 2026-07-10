@@ -1,0 +1,75 @@
+ALPHA SNIPER FLOW - WINDOWS VPS START GUIDE
+
+Use this when you want the scanner running 24/7 from a Windows VPS.
+
+WHAT YOU NEED
+- Windows VPS with internet access
+- Python 3.10, 3.11, or 3.12 installed
+- Do not use Python 3.13/3.14 yet; some Windows scanner packages do not support it.
+- VPS provider firewall/security group allowing TCP port 8000
+
+START ON VPS
+1. Upload/unzip this folder on the Windows VPS.
+2. Install Python 3.12 from:
+   https://www.python.org/downloads/release/python-3128/
+3. During install, tick:
+   Add python.exe to PATH
+4. Right-click and Run as Administrator:
+   START_ALPHA_SNIPER_WINDOWS_VPS.bat
+5. Keep the scanner window open.
+
+AUTO START AFTER VPS RESTART
+Right-click and Run as Administrator:
+INSTALL_ALPHA_SNIPER_AUTOSTART_WINDOWS.bat
+
+After this, the platform starts automatically whenever the VPS/computer starts.
+To remove auto-start later, run:
+REMOVE_ALPHA_SNIPER_AUTOSTART_WINDOWS.bat
+
+PUBLIC LINK
+The VPS starter prints a link like:
+http://YOUR-VPS-PUBLIC-IP:8000/spot-momentum-scanner.html
+
+Open this link on:
+- Android
+- iPhone / iPad
+- Mac
+- Windows
+- Tablet
+
+OWNER ADMIN PANEL
+Open:
+http://YOUR-VPS-PUBLIC-IP:8000/admin.html
+
+Your owner password is created automatically in:
+ADMIN_PASSWORD.txt
+
+Use the admin panel to:
+- Create one-time customer PINs
+- Choose access days such as 3, 18, or 30
+- See used / unused / expired PINs
+- Revoke access
+- Extend active access
+
+CUSTOMER LOGIN
+Customers open the public scanner link and enter their PIN.
+Each PIN can be used only one time.
+
+IF PUBLIC LINK DOES NOT OPEN
+1. In your VPS provider panel, open inbound TCP port 8000.
+2. In Windows Firewall, allow TCP port 8000.
+3. Make sure the VPS starter window is still open.
+4. Test locally on the VPS first:
+   http://localhost:8000/spot-momentum-scanner.html
+
+QUICK OPEN
+After the VPS starter is running, you can double-click:
+OPEN_VPS_WEBSITE_WINDOWS.bat
+
+IMPORTANT SECURITY NOTE
+Use a strong VPS password and do not share ADMIN_PASSWORD.txt.
+For public website launch, a domain with HTTPS is recommended later.
+
+STOP
+Close the scanner Python window or run:
+STOP_ALPHA_SNIPER_WINDOWS.bat

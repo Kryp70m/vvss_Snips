@@ -1,0 +1,14 @@
+LOCAL TEST LINKS AFTER RUNNING RUN_LOCAL_WINDOWS.bat or RUN_LOCAL_MAC_LINUX.sh
+
+User Panel:
+http://127.0.0.1:8000/spot-momentum-scanner.html
+
+Admin Panel:
+http://127.0.0.1:8000/admin.html
+
+Health Check:
+http://127.0.0.1:8000/health
+
+VPS Links after deployment:
+http://72.61.242.1:8000/spot-momentum-scanner.html
+http://72.61.242.1:8000/admin.html

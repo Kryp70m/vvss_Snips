@@ -1,0 +1,46 @@
+VOLUME SNIPER V12 - PRODUCTION UPGRADE
+
+Admin panel:
+Open /admin.html
+Admin password:
+ZPXIPQ549I4J
+
+User panel:
+Open /spot-momentum-scanner.html
+Users must enter a valid PIN before seeing the scanner.
+
+What changed in V12:
+- Preserved the existing V11 scanner scoring, big-order, volume acceleration, NATR, liquidity, market-cap, low-price, momentum and alert-quality logic.
+- Removed the user Target Move slider workflow from the visible platform.
+- Kept the internal expected-move engine and now classifies alerts automatically:
+  Precision Move: 3-5%
+  Momentum Move: 5-10%
+  Expansion Move: 10%+
+- Users can no longer load/remove symbols, upload symbol lists, rebuild scanner universes, or change scanner thresholds.
+- Active scanner exchanges are Binance and MEXC only.
+- Binance and MEXC universes load only symbols available on both Spot and Perp.
+- Maximum active scanner universe is 700 Binance symbols and 700 MEXC symbols.
+- Automatic universe refresh runs every 30-60 minutes without user action.
+- Admin can manage PINs, enable/disable access, copy PINs, see health stats, and save a priority TXT watchlist.
+- PIN database, favorites, announcements, user data, and admin settings are stored outside the replaceable app folder on VPS.
+- Favorites are saved in the backend database and survive browser refresh, VPS restart, and future ZIP updates.
+- Admin Updates keep the latest 30 messages and are read-only for users.
+- Added /health/scanner-debug for scanner pipeline diagnostics.
+
+Important VPS data rule:
+Do not delete /root/alpha-sniper-data on Ubuntu VPS.
+That folder preserves PINs, sessions, favorites, admin updates, admin password, and settings across future ZIP updates.
+
+Ubuntu VPS run command:
+cd /root/backend
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+Recommended systemd service command:
+ExecStart=/root/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+Health checks:
+/health
+/health/scanner-debug
+
+Signal quality note:
+V12 does not reduce the V11 trading logic. The scanner still uses the existing V11 signal philosophy and expected-move engine; V12 removes user-side slider confusion and improves stability, persistence, diagnostics, and paid-platform controls around it.

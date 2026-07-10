@@ -1,0 +1,70 @@
+ALPHA SNIPER FLOW - WINDOWS START GUIDE
+
+This is the Windows desktop package.
+
+WHAT WINDOWS CAN DO
+- Run the live scanner backend.
+- Open the dashboard on the same Windows computer.
+- Share a Wi-Fi link to Android, iPhone, iPad, tablet, Mac, or another computer.
+
+REQUIREMENT
+- Install Python 3.12 from:
+  https://www.python.org/downloads/release/python-3128/
+- During install, tick:
+  Add python.exe to PATH
+Note: Python 3.13/3.14 is too new for some Windows scanner packages. Use Python 3.10, 3.11, or 3.12.
+
+START
+1. Unzip this folder.
+2. Double-click:
+   START_ALPHA_SNIPER_WINDOWS.bat
+3. If Windows Firewall asks, allow Python on Private Networks.
+4. Keep the Alpha Sniper App window open.
+5. The dashboard opens automatically:
+   http://localhost:8000/spot-momentum-scanner.html
+
+OWNER ADMIN PANEL
+1. After the starter runs, open:
+   http://localhost:8000/admin.html
+2. Open this file in the same folder:
+   ADMIN_PASSWORD.txt
+3. Paste that password into the admin panel.
+4. Create customer PINs for 3, 18, 30, or any number of days.
+
+CUSTOMER LOGIN
+- Give the customer the website link and one PIN.
+- The PIN works one time only.
+- After first login, that browser stays active until the PIN days expire.
+- If the customer shares the PIN, it will not work again.
+
+IF THE WEBSITE DOES NOT OPEN
+Double-click:
+OPEN_WEBSITE_WINDOWS.bat
+
+You can also double-click:
+OPEN_WEBSITE_WINDOWS.url
+
+Important: START_ALPHA_SNIPER_WINDOWS.bat must be running first.
+
+PHONE / TABLET VIEWING
+After the Windows starter runs, it prints a Wi-Fi link like:
+http://192.168.x.x:8000/spot-momentum-scanner.html
+
+Open that link on Android, iPhone, iPad, or tablet while connected to the same Wi-Fi.
+
+STOP
+Double-click:
+STOP_ALPHA_SNIPER_WINDOWS.bat
+
+WINDOWS VPS / 24-7 SERVER
+If you want to run this on a Windows VPS, use:
+START_HERE_WINDOWS_VPS.txt
+
+Then run:
+START_ALPHA_SNIPER_WINDOWS_VPS.bat
+
+IMPORTANT
+- Do not open the HTML file directly if you want live scanning.
+- Keep the Windows computer awake.
+- Live scanning needs internet access.
+- This scanner does not place trades automatically.

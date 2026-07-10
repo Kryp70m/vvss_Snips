@@ -1,0 +1,19 @@
+Volume Sniper local test build changes:
+- Frontend now opens on one main SPOT+PERP SCANNER tab.
+- Old Spot and Perp tabs are hidden from the user interface.
+- Main Auto Load button uses /api/unified-universe/auto with limit 700.
+- Auto-load focuses on Binance + MEXC symbols that exist in Spot and Perp.
+- Separate exchange volume logic remains preserved internally.
+- TXT upload remains available.
+- Local links:
+  http://127.0.0.1:8000/spot-momentum-scanner.html
+  http://127.0.0.1:8000/admin.html
+  http://127.0.0.1:8000/health
+
+
+UPDATE - MAX COMMON SPOT+PERP AUTO LOAD FIX
+- Auto-load now discovers a much larger public candidate pool before intersecting Spot and Perp.
+- It then live-loads up to 700 common Spot+Perp symbols per exchange.
+- If Binance or MEXC shows less than 700, that means the exchange currently has fewer eligible common symbols after filters; 700 is the cap, not a guaranteed count.
+- Per-exchange Auto Load buttons now load live Spot+Perp streams instead of only preparing a list.
+- UI wording updated to remove confusing old Top 5000 / Unified wording.

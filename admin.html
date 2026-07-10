@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alpha Sniper Admin</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin:0;background:#000;color:#fff;font-family:Inter,system-ui,"Segoe UI",sans-serif; }
+      .wrap { max-width:1120px;margin:0 auto;padding:18px; }
+      .head { display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #242424;padding-bottom:14px; }
+      h1 { margin:0;font-size:24px; }
+      .muted { color:#b8b8b8; }
+      .amber { color:#f6b84b; }
+      .panel, .card { border:1px solid rgba(255,255,255,.22);background:#050505;padding:14px;margin-top:14px; }
+      .grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;align-items:end; }
+      input, textarea, button { font:inherit;border:1px solid #333;background:#000;color:#fff;padding:10px;width:100%; }
+      textarea { min-height:96px;resize:vertical;line-height:1.4; }
+      button { cursor:pointer;font-weight:800; }
+      button:hover { background:#151515; }
+      .actions button { width:auto; }
+      .good { color:#45e39f; }
+      .bad { color:#ff5e7a; }
+      table { width:100%;border-collapse:collapse;margin-top:12px;font-size:14px; }
+      th, td { border-bottom:1px solid #242424;padding:10px;text-align:left;vertical-align:top; }
+      th { color:#b8b8b8;text-transform:uppercase;font-size:12px; }
+      .pill { display:inline-block;border:1px solid #333;padding:3px 7px;font-weight:800;text-transform:uppercase;font-size:12px; }
+      .pill.active, .pill.unused { color:#45e39f;border-color:#45e39f; }
+      .pill.expired, .pill.revoked { color:#ff5e7a;border-color:#ff5e7a; }
+      .actions { display:flex;gap:8px;flex-wrap:wrap; }
+      .watch-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px; }
+      .watch-head { display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px; }
+      .watch-actions { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px; }
+      .file-btn { position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:1px solid #333;background:#000;font-weight:800;cursor:pointer; }
+      .file-btn input { position:absolute;inset:0;opacity:0;cursor:pointer; }
+      .login { max-width:420px;margin:12vh auto 0; }
+      @media (max-width: 760px) {
+        .grid { grid-template-columns:1fr; }
+        .watch-grid, .watch-actions { grid-template-columns:1fr; }
+        table, thead, tbody, th, td, tr { display:block; }
+        th { display:none; }
+        td { border-bottom:0;padding:6px 0; }
+        tr { border-bottom:1px solid #242424;padding:10px 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="head">
+        <div>
+          <h1>Alpha Sniper Admin</h1>
+          <div class="muted">Create one-time user PINs and manage access days.</div>
+        </div>
+        <div class="actions">
+          <a href="/spot-momentum-scanner.html" style="color:#f6b84b;">Open Platform</a>
+          <button id="logout" style="display:none;">Logout</button>
+        </div>
+      </div>
+
+      <section id="login-panel" class="panel login">
+        <h2>Owner Login</h2>
+        <div class="muted">Open <b>ADMIN_PASSWORD.txt</b> in your platform folder and paste the password here.</div>
+        <div style="display:grid;gap:10px;margin-top:12px;">
+          <input id="password" type="password" placeholder="Owner password" autocomplete="current-password" />
+          <button id="login">Login</button>
+          <div id="login-message" class="amber"></div>
+        </div>
+      </section>
+
+      <main id="admin-panel" style="display:none;">
+        <section class="panel">
+          <div class="head" style="padding-bottom:8px;">
+            <h2 style="margin:0;">System</h2>
+            <div class="actions">
+              <a href="/spot-momentum-scanner.html" style="color:#f6b84b;">Open User Website</a>
+              <button id="refresh-system">Refresh Status</button>
+            </div>
+          </div>
+          <div id="stats" class="grid" style="margin-top:10px;"></div>
+          <div class="muted" style="margin-top:10px;">This panel confirms current PIN/access status and deployment health.</div>
+        </section>
+
+        <section class="panel">
+          <div class="head" style="padding-bottom:8px;">
+            <h2 style="margin:0;">Platform Updates</h2>
+          </div>
+          <div class="muted">Admin ZIP upload is disabled for production safety. Update manually through FileZilla/SSH so the Python virtual environment and persistent user database are never deleted.</div>
+        </section>
+        <section class="panel">
+          <div class="head" style="padding-bottom:8px;">
+            <h2 style="margin:0;">Priority Watchlists</h2>
+          </div>
+          <div class="muted">Admin only. One symbol per line. Watchlists raise priority for qualified signals only; they do not bypass filters, restart scanners, or create duplicate subscriptions.</div>
+          <div class="watch-grid">
+            <div class="card">
+              <div class="watch-head"><h3 style="margin:0;">Binance Watchlist</h3><span id="binance-watch-count" class="pill">0</span></div>
+              <textarea id="binance-watchlist-input" placeholder="DOGEUSDT&#10;PEPEUSDT&#10;BONKUSDT"></textarea>
+              <div class="watch-actions">
+                <label class="file-btn">Upload TXT<input id="binance-watch-upload" type="file" accept=".txt,text/plain"></label>
+                <button id="save-binance-watchlist">Save</button>
+                <button id="clear-binance-watchlist">Delete List</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="watch-head"><h3 style="margin:0;">MEXC Watchlist</h3><span id="mexc-watch-count" class="pill">0</span></div>
+              <textarea id="mexc-watchlist-input" placeholder="DOGEUSDT&#10;PEPEUSDT&#10;BONKUSDT"></textarea>
+              <div class="watch-actions">
+                <label class="file-btn">Upload TXT<input id="mexc-watch-upload" type="file" accept=".txt,text/plain"></label>
+                <button id="save-mexc-watchlist">Save</button>
+                <button id="clear-mexc-watchlist">Delete List</button>
+              </div>
+            </div>
+          </div>
+          <div id="watchlist-message" class="amber" style="margin-top:10px;"></div>
+        </section>
+<section class="panel">
+          <h2>Create Access PIN</h2>
+          <div class="grid">
+            <label>Days
+              <input id="days" type="number" min="1" max="365" value="30" />
+            </label>
+            <label>Note
+              <input id="note" placeholder="Customer name or phone" />
+            </label>
+            <label>Custom PIN
+              <input id="custom-code" placeholder="Optional" />
+            </label>
+            <button id="create">Create PIN</button>
+          </div>
+          <div id="create-message" class="amber" style="margin-top:10px;"></div>
+        </section>
+
+        <section class="panel">
+          <div class="head" style="padding-bottom:8px;">
+            <h2 style="margin:0;">Access Page Content</h2>
+            <button id="save-content" style="max-width:190px;">Save Website Text</button>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:10px;">
+            <label>Subscription Label
+              <input id="content-subscription-label" placeholder="Monthly" />
+            </label>
+            <label>Payment Amount
+              <input id="content-subscription-amount" placeholder="$7" />
+            </label>
+            <label>Compare Amount
+              <input id="content-compare-amount" placeholder="$11" />
+            </label>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:10px;">
+            <label>Discount / Validity Text
+              <input id="content-discount-text" placeholder="Discount valid only for 3 days" />
+            </label>
+            <label>Free Use Title
+              <input id="content-free-title" placeholder="FREE USE" />
+            </label>
+          </div>
+          <label style="display:block;margin-top:10px;">Free Use Terms
+            <textarea id="content-free-terms"></textarea>
+          </label>
+          <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:10px;">
+            <label>Contact Text
+              <input id="content-contact-text" placeholder="Contact Admin: @ShibutradesYT" />
+            </label>
+            <label>Contact Link
+              <input id="content-contact-link" placeholder="https://t.me/ShibutradesYT" />
+            </label>
+          </div>
+          <label style="display:block;margin-top:10px;">Footer Free Use Text
+            <textarea id="content-footer-free-text"></textarea>
+          </label>
+          <div id="content-message" class="amber" style="margin-top:10px;"></div>
+        </section>
+
+        <section class="panel">
+          <div class="head" style="padding-bottom:8px;">
+            <h2 style="margin:0;">Admin Updates</h2>
+            <button id="save-chat" style="max-width:190px;">Send Message</button>
+          </div>
+          <div class="muted">Latest 30 updates show to users after login in the Admin Updates tab.</div>
+          <label style="display:block;margin-top:10px;">Section Name
+            <input id="content-chat-title" placeholder="ADMIN UPDATES" />
+          </label>
+          <label style="display:block;margin-top:10px;">Message
+            <textarea id="content-chat-message"></textarea>
+          </label>
+          <div id="chat-message-status" class="amber" style="margin-top:10px;"></div>
+          <div id="chat-message-list" style="margin-top:12px;"></div>
+        </section>
+
+        <section class="panel">
+          <div class="head" style="padding-bottom:8px;">
+            <h2 style="margin:0;">PIN Manager</h2>
+            <button id="refresh">Refresh</button>
+          </div>
+          <div class="muted">Unused PINs can be sent to customers. Once used, the PIN cannot be reused.</div>
+          <div style="overflow:auto;">
+            <table>
+              <thead>
+                <tr><th>PIN</th><th>Status</th><th>Days</th><th>Note</th><th>User / Device</th><th>Used</th><th>Expires</th><th>Actions</th></tr>
+              </thead>
+              <tbody id="pins"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      async function post(path, body) {
+        const response = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Request failed");
+        return data;
+      }
+      function shortDate(value) {
+        if (!value) return "--";
+        return new Date(value).toLocaleString();
+      }
+      function shortDevice(value) {
+        if (!value) return "--";
+        return value.length > 80 ? value.slice(0, 80) + "..." : value;
+      }
+      function escapeHtml(value) {
+        return String(value == null ? "" : value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+      }
+      function contentPayload() {
+        return {
+          subscription_label: $("content-subscription-label").value,
+          subscription_amount: $("content-subscription-amount").value,
+          subscription_compare_amount: $("content-compare-amount").value,
+          discount_text: $("content-discount-text").value,
+          free_use_title: $("content-free-title").value,
+          free_use_terms: $("content-free-terms").value,
+          contact_text: $("content-contact-text").value,
+          contact_link: $("content-contact-link").value,
+          footer_free_text: $("content-footer-free-text").value,
+          admin_chat_title: $("content-chat-title").value
+        };
+      }
+      function fillContent(content) {
+        $("content-subscription-label").value = content.subscription_label || "";
+        $("content-subscription-amount").value = content.subscription_amount || "";
+        $("content-compare-amount").value = content.subscription_compare_amount || "";
+        $("content-discount-text").value = content.discount_text || "";
+        $("content-free-title").value = content.free_use_title || "";
+        $("content-free-terms").value = content.free_use_terms || "";
+        $("content-contact-text").value = content.contact_text || "";
+        $("content-contact-link").value = content.contact_link || "";
+        $("content-footer-free-text").value = content.footer_free_text || "";
+        $("content-chat-title").value = content.admin_chat_title || "";
+        $("content-chat-message").value = "";
+        renderChatMessages(content.admin_chat_messages || []);
+      }
+      function renderChatMessages(messages) {
+        const list = Array.isArray(messages) ? messages.slice(0, 30) : [];
+        $("chat-message-list").innerHTML = list.length ? list.map((item) => (
+          "<div class='card'>" +
+          "<div class='muted'>" + shortDate(item.created_at) + "</div>" +
+          "<div style='white-space:pre-wrap;margin-top:6px;'>" + escapeHtml(item.message || "") + "</div>" +
+          "<div class='actions' style='margin-top:10px;'><button data-edit-chat='" + item.id + "'>Edit</button><button data-delete-chat='" + item.id + "'>Delete</button></div>" +
+          "</div>"
+        )).join("") : "<div class='muted'>No admin chat messages yet.</div>";
+        document.querySelectorAll("[data-edit-chat]").forEach((button) => {
+          button.onclick = async () => {
+            const current = list.find((item) => item.id === button.dataset.editChat);
+            const next = prompt("Edit admin chat message", current ? current.message : "");
+            if (next && next.trim()) {
+              await post("/api/admin/chat-messages/" + button.dataset.editChat, { message: next.trim() });
+              await loadContent();
+            }
+          };
+        });
+        document.querySelectorAll("[data-delete-chat]").forEach((button) => {
+          button.onclick = async () => {
+            if (confirm("Delete this admin chat message?")) {
+              await post("/api/admin/chat-messages/" + button.dataset.deleteChat + "/delete");
+              await loadContent();
+            }
+          };
+        });
+      }
+      async function loadContent() {
+        const response = await fetch("/api/admin/site-content");
+        if (!response.ok) return;
+        fillContent(await response.json());
+      }
+      async function saveContent(statusId) {
+        $(statusId).textContent = "Saving...";
+        try {
+          const content = await post("/api/admin/site-content", contentPayload());
+          fillContent(content);
+          $(statusId).textContent = statusId === "chat-message-status" ? "Message sent to users." : "Website text saved.";
+        } catch (error) {
+          $(statusId).textContent = error.message;
+        }
+      }
+      async function saveChatMessage() {
+        $("chat-message-status").textContent = "Sending...";
+        try {
+          await post("/api/admin/site-content", { admin_chat_title: $("content-chat-title").value });
+          const text = $("content-chat-message").value.trim();
+          if (text) await post("/api/admin/chat-messages", { message: text });
+          $("chat-message-status").textContent = text ? "Message sent to users." : "Chat title saved.";
+          await loadContent();
+        } catch (error) {
+          $("chat-message-status").textContent = error.message;
+        }
+      }
+      // Admin ZIP upload removed for production safety.
+
+      async function loadStats() {
+        const response = await fetch("/api/admin/stats");
+        if (!response.ok) return;
+        const stats = await response.json();
+        const scanner = stats.scanner || {};
+        const fmtTime = (ms) => ms ? new Date(Number(ms)).toLocaleString() : "--";
+        $("stats").innerHTML =
+          "<div class='card'><div class='muted'>Active Users</div><h2>" + stats.active + "</h2></div>" +
+          "<div class='card'><div class='muted'>Unused PINs</div><h2>" + stats.unused + "</h2></div>" +
+          "<div class='card'><div class='muted'>Expired</div><h2>" + stats.expired + "</h2></div>" +
+          "<div class='card'><div class='muted'>Revoked</div><h2>" + stats.revoked + "</h2></div>" +
+          "<div class='card'><div class='muted'>Uptime</div><h2>" + Math.floor((stats.uptime_seconds || 0) / 60) + "m</h2></div>" +
+          "<div class='card'><div class='muted'>Memory</div><h2>" + (stats.memory_mb || 0) + " MB</h2></div>" +
+          "<div class='card'><div class='muted'>Binance Active</div><h2>" + (scanner.binance_active_symbols || 0) + "</h2></div>" +
+          "<div class='card'><div class='muted'>MEXC Active</div><h2>" + (scanner.mexc_active_symbols || 0) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Total Active</div><h2>" + (scanner.total_active_symbols || 0) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Spot Streams</div><h2>" + (scanner.spot_stream_tasks || 0) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Perp Streams</div><h2>" + (scanner.perp_stream_tasks || 0) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Reconnect Count</div><h2>" + (scanner.reconnect_count || 0) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Dead Streams</div><h2>" + ((scanner.spot_dead_tasks || 0) + (scanner.perp_dead_tasks || 0)) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Last Universe Refresh</div><h2 style='font-size:14px;'>" + fmtTime(scanner.last_universe_refresh) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Next Universe Refresh</div><h2 style='font-size:14px;'>" + fmtTime(scanner.next_universe_refresh) + "</h2></div>" +
+          "<div class='card'><div class='muted'>Scanner</div><h2>" + (scanner.running ? "ON" : "OFF") + "</h2></div>";
+      }
+      async function loadWatchlist() {
+        try {
+          const response = await fetch("/api/admin/watchlist");
+          if (!response.ok) return;
+          const data = await response.json();
+          $("binance-watchlist-input").value = (data.binance || []).join("\n");
+          $("mexc-watchlist-input").value = (data.mexc || []).join("\n");
+          $("binance-watch-count").textContent = (data.counts && data.counts.binance) || (data.binance || []).length || 0;
+          $("mexc-watch-count").textContent = (data.counts && data.counts.mexc) || (data.mexc || []).length || 0;
+        } catch {}
+      }
+      function watchlistSymbols(exchange) {
+        return $(exchange + "-watchlist-input").value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      }
+      async function saveWatchlist(exchange) {
+        $("watchlist-message").textContent = "Saving " + exchange.toUpperCase() + " watchlist...";
+        try {
+          const data = await post("/api/admin/watchlist", { exchange, symbols: watchlistSymbols(exchange) });
+          $("watchlist-message").textContent = "Saved " + ((data.counts && data.counts[exchange]) || 0) + " " + exchange.toUpperCase() + " priority symbols.";
+          await loadWatchlist();
+        } catch (error) {
+          $("watchlist-message").textContent = error.message;
+        }
+      }
+      async function clearWatchlist(exchange) {
+        if (!confirm("Delete " + exchange.toUpperCase() + " watchlist?")) return;
+        $("watchlist-message").textContent = "Deleting " + exchange.toUpperCase() + " watchlist...";
+        try {
+          await post("/api/admin/watchlist/" + exchange + "/clear");
+          $("watchlist-message").textContent = exchange.toUpperCase() + " watchlist deleted.";
+          await loadWatchlist();
+        } catch (error) {
+          $("watchlist-message").textContent = error.message;
+        }
+      }
+      function bindWatchUpload(exchange) {
+        const input = $(exchange + "-watch-upload");
+        input.onchange = async () => {
+          const file = input.files && input.files[0];
+          if (!file) return;
+          $(exchange + "-watchlist-input").value = await file.text();
+          $("watchlist-message").textContent = file.name + " loaded. Click Save to apply.";
+          input.value = "";
+        };
+      }
+      async function loadPins() {
+        const response = await fetch("/api/admin/pins");
+        if (response.status === 401) {
+          $("login-panel").style.display = "block";
+          $("admin-panel").style.display = "none";
+          $("logout").style.display = "none";
+          return;
+        }
+        const pins = await response.json();
+        $("login-panel").style.display = "none";
+        $("admin-panel").style.display = "block";
+        $("logout").style.display = "inline-block";
+        await loadStats();
+        await loadContent();
+        await loadWatchlist();
+        $("pins").innerHTML = pins.map((pin) => (
+          "<tr>" +
+          "<td><b>" + pin.code + "</b><br><button data-copy-pin='" + pin.code + "' style='margin-top:6px;'>Copy</button></td>" +
+          "<td><span class='pill " + pin.status + "'>" + pin.status + "</span></td>" +
+          "<td>" + pin.days + "<br><span class='muted'>" + (pin.days_left || 0) + " left</span></td>" +
+          "<td>" + (pin.note || "--") + "</td>" +
+          "<td>" + (pin.active_session ? ("IP: " + (pin.active_session.ip || "--") + "<br><span class='muted'>" + shortDevice(pin.active_session.device) + "</span><br><span class='muted'>Seen: " + shortDate(pin.active_session.last_seen_at) + "</span>") : "--") + "</td>" +
+          "<td>" + shortDate(pin.used_at) + "</td>" +
+          "<td>" + shortDate(pin.expires_at) + "</td>" +
+          "<td><div class='actions'><button data-extend='" + pin.id + "'>+ Days</button><button data-enable='" + pin.id + "'>Enable</button><button data-revoke='" + pin.id + "'>Disable</button></div></td>" +
+          "</tr>"
+        )).join("") || "<tr><td colspan='8' class='muted'>No PINs yet.</td></tr>";
+        document.querySelectorAll("[data-copy-pin]").forEach((button) => {
+          button.onclick = async () => {
+            const pin = button.dataset.copyPin;
+            try {
+              await navigator.clipboard.writeText(pin);
+              button.textContent = "Copied";
+              setTimeout(() => { button.textContent = "Copy"; }, 1200);
+            } catch {
+              prompt("Copy PIN", pin);
+            }
+          };
+        });
+        document.querySelectorAll("[data-revoke]").forEach((button) => {
+          button.onclick = async () => { await post("/api/admin/pins/" + button.dataset.revoke + "/revoke"); await loadPins(); };
+        });
+        document.querySelectorAll("[data-enable]").forEach((button) => {
+          button.onclick = async () => { await post("/api/admin/pins/" + button.dataset.enable + "/enable"); await loadPins(); };
+        });
+        document.querySelectorAll("[data-extend]").forEach((button) => {
+          button.onclick = async () => {
+            const days = Number(prompt("Add how many days?", "30") || 0);
+            if (days > 0) { await post("/api/admin/pins/" + button.dataset.extend + "/extend", { days }); await loadPins(); }
+          };
+        });
+      }
+      $("login").onclick = async () => {
+        $("login-message").textContent = "Checking...";
+        try {
+          await post("/api/admin/login", { password: $("password").value.trim() });
+          $("password").value = "";
+          $("login-message").textContent = "";
+          await loadPins();
+        } catch (error) {
+          $("login-message").textContent = error.message && error.message.includes("Failed")
+            ? "Server not reachable. Make sure START_ALPHA_SNIPER_WINDOWS is running."
+            : error.message;
+        }
+      };
+      $("password").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") $("login").click();
+      });
+      $("create").onclick = async () => {
+        $("create-message").textContent = "Creating...";
+        try {
+          const pin = await post("/api/admin/pins", {
+            days: Number($("days").value || 30),
+            note: $("note").value,
+            code: $("custom-code").value
+          });
+          $("create-message").innerHTML = "Created PIN: <b class='good'>" + pin.code + "</b>";
+          $("custom-code").value = "";
+          await loadPins();
+        } catch (error) {
+          $("create-message").textContent = error.message;
+        }
+      };
+      $("refresh").onclick = () => loadPins();
+      $("refresh-system").onclick = () => loadPins();
+      $("save-content").onclick = () => saveContent("content-message");
+      $("save-chat").onclick = () => saveChatMessage();
+      $("save-binance-watchlist").onclick = () => saveWatchlist("binance");
+      $("save-mexc-watchlist").onclick = () => saveWatchlist("mexc");
+      $("clear-binance-watchlist").onclick = () => clearWatchlist("binance");
+      $("clear-mexc-watchlist").onclick = () => clearWatchlist("mexc");
+      bindWatchUpload("binance");
+      bindWatchUpload("mexc");
+      $("logout").onclick = async () => { await post("/api/admin/logout"); location.reload(); };
+      loadPins();
+    </script>
+  </body>
+</html>

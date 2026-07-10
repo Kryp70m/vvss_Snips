@@ -1,0 +1,29 @@
+ALPHA SNIPER FLOW - ADMIN LOGIN DETAILS
+
+LOCAL ADMIN PANEL:
+http://localhost:8000/admin.html
+
+LOCAL USER / CUSTOMER LINK:
+http://localhost:8000/spot-momentum-scanner.html
+
+VPS ADMIN PANEL:
+http://YOUR-VPS-PUBLIC-IP:8000/admin.html
+
+VPS USER / CUSTOMER LINK:
+http://YOUR-VPS-PUBLIC-IP:8000/spot-momentum-scanner.html
+
+ADMIN PASSWORD:
+ZPXIPQ549I4J
+
+HOW TO USE:
+1. Run START_ALPHA_SNIPER_WINDOWS.bat or START_ALPHA_SNIPER_WINDOWS_VPS.bat.
+2. Open the admin panel link.
+3. Paste the admin password above.
+4. Create a PIN for 3, 18, 30, or any number of days.
+5. Give the user/customer link and one PIN to your customer.
+
+IMPORTANT:
+- One PIN works one time only.
+- After the first login, that PIN cannot be reused or shared.
+- Do not share this admin password file with customers.
+- On Ubuntu VPS, PINs and user settings are stored outside the app in /root/alpha-sniper-data/ so ZIP updates do not delete old customers.
