@@ -3,7 +3,6 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,7 +20,13 @@ from app.services.scanner import ScannerService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+# Smart path resolution: Works perfectly both locally and inside the Docker container
+CONTAINER_ROOT = Path("/app")
+if CONTAINER_ROOT.exists() and (CONTAINER_ROOT / "spot-momentum-scanner.html").exists():
+    PACKAGE_ROOT = CONTAINER_ROOT
+else:
+    PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+
 FRONTEND_HTML = PACKAGE_ROOT / "spot-momentum-scanner.html"
 ADMIN_HTML = PACKAGE_ROOT / "admin.html"
 MANIFEST_FILE = PACKAGE_ROOT / "manifest.webmanifest"
@@ -67,6 +72,7 @@ async def lifespan(app: FastAPI):
         await scanner.stop()
 
 
+# The server app instance is created here cleanly first
 app = FastAPI(title="Binance Spot Momentum Ignition Scanner", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,

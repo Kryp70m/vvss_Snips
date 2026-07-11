@@ -722,6 +722,17 @@ class ScannerService:
         self._stream_tasks.append(asyncio.create_task(self._consume_liquidations()))
         logger.info("Spawned %s multi-exchange execution stream connections successfully.", len(self._stream_tasks))
 
+    async def _start_perp_streams(self) -> None:
+        if self._perp_streams_started:
+            return
+        self._perp_streams_started = True
+        self._perp_stream_tasks = []
+        if self._enabled_perp("binance") and self.binance_perp_symbols:
+            self._perp_stream_tasks.append(asyncio.create_task(self._consume_binance_perp_stream(list(self.binance_perp_symbols))))
+        if self._enabled_perp("mexc") and self.mexc_perp_symbols:
+            self._perp_stream_tasks.append(asyncio.create_task(self._consume_mexc_perp_stream(list(self.mexc_perp_symbols))))
+        logger.info("Spawned %s structural futures perp execution streams successfully.", len(self._perp_stream_tasks))
+
     async def _stop_streams(self) -> None:
         self._streams_started = False
         for task in self._stream_tasks:
@@ -729,15 +740,18 @@ class ScannerService:
         await asyncio.gather(*self._stream_tasks, return_exceptions=True)
         self._stream_tasks.clear()
         
-        # Safely shut down Binance Futures
-        if hasattr(self.binance, 'close'):
+        try:
             await self.binance.close()
-            
-        # Safely determine and execute MexcSpot teardown method
-        for method_name in ['disconnect', 'close', 'stop']:
-            if hasattr(self.mexc, method_name):
-                await getattr(self.mexc, method_name)()
-                break
+        except Exception:
+            pass
+        try:
+            await self.mexc.close()
+        except Exception:
+            pass
+        try:
+            await self.mexc.disconnect()
+        except Exception:
+            pass
 
     async def _stop_perp_streams(self) -> None:
         self._perp_streams_started = False
@@ -746,22 +760,22 @@ class ScannerService:
         await asyncio.gather(*self._perp_stream_tasks, return_exceptions=True)
         self._perp_stream_tasks.clear()
         
-        # Safely handle Perp connections
-        for client in [self.binance_perp, self.mexc_perp]:
-            for method_name in ['close', 'disconnect', 'stop']:
-                if hasattr(client, method_name):
-                    await getattr(client, method_name)()
-                    break
-
-    async def _stop_perp_streams(self) -> None:
-        self._perp_streams_started = False
-        for task in self._perp_stream_tasks:
-            task.cancel()
-        await asyncio.gather(*self._perp_stream_tasks, return_exceptions=True)
-        self._perp_stream_tasks.clear()
-        # BOTH CHANGED TO .close()
-        await self.binance_perp.close()
-        await self.mexc_perp.close()
+        try:
+            await self.binance_perp.disconnect()
+        except Exception:
+            pass
+        try:
+            await self.binance_perp.close()
+        except Exception:
+            pass
+        try:
+            await self.mexc_perp.disconnect()
+        except Exception:
+            pass
+        try:
+            await self.mexc_perp.close()
+        except Exception:
+            pass
 
     async def _consume_binance_stream(self, symbols: list[str]) -> None:
         async for event in self.binance.stream_market_data(symbols):
@@ -869,13 +883,17 @@ class ScannerService:
                     for batch in chunked(symbols, 50):
                         if not self._running:
                             break
-                        tasks = [self.binance_perp.fetch_open_interest(s) for s in batch]
-                        events = await asyncio.gather(*tasks, return_exceptions=True)
-                        for event in events:
-                            if isinstance(event, OpenInterestEvent):
-                                state = self.perp_states.get(self._state_key(event.exchange, event.symbol))
-                                if state:
-                                    state.apply_open_interest(event)
+                        try:
+                            # Re-routed to use the correct binance client discovered in the logs
+                            tasks = [self.binance.fetch_open_interest(s) for s in batch]
+                            events = await asyncio.gather(*tasks, return_exceptions=True)
+                            for event in events:
+                                if isinstance(event, OpenInterestEvent):
+                                    state = self.perp_states.get(self._state_key(event.exchange, event.symbol))
+                                    if state:
+                                        state.apply_open_interest(event)
+                        except Exception as e:
+                            logger.error(f"Failed batch open interest fetch: {e}")
                         await asyncio.sleep(1.0)
             except Exception:
                 logger.exception("Failed to execute open interest aggregation step")
