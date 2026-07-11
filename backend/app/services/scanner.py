@@ -377,7 +377,7 @@ class ScannerService:
             if hasattr(self.mexc_perp, 'filter_perp_symbols'):
                 cleaned_symbols = await self.mexc_perp.filter_perp_symbols(cleaned_symbols)
             elif hasattr(self.mexc_perp, 'filter_symbols'):
-                cleaned_symbols = await self.mexc_perp.filter_symbols(cleaned_symbols))
+                cleaned_symbols = await self.mexc_perp.filter_symbols(cleaned_symbols)
         cleaned_symbols = cleaned_symbols[: self.settings.max_symbols_per_exchange]
         if not cleaned_symbols:
             raise ValueError(f"No valid Spot USDT symbols found for {exchange.upper()}")
@@ -419,10 +419,17 @@ class ScannerService:
         exchange_key = self._clean_exchange(exchange)
         self._assert_enabled_perp(exchange_key)
         cleaned_symbols = self._clean_exchange_symbols(exchange_key, symbols)
+        # Safe V2 check for perp symbol validation methods
         if exchange_key == "binance":
-            cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
+            if hasattr(self.binance_perp, 'filter_perp_symbols'):
+                cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
+            elif hasattr(self.binance_perp, 'filter_symbols'):
+                cleaned_symbols = await self.binance_perp.filter_symbols(cleaned_symbols)
         elif exchange_key == "mexc":
-            cleaned_symbols = await self.mexc_perp.filter_perp_symbols(cleaned_symbols)
+            if hasattr(self.mexc_perp, 'filter_perp_symbols'):
+                cleaned_symbols = await self.mexc_perp.filter_perp_symbols(cleaned_symbols)
+            elif hasattr(self.mexc_perp, 'filter_symbols'):
+                cleaned_symbols = await self.mexc_perp.filter_symbols(cleaned_symbols)
         cleaned_symbols = cleaned_symbols[: self.settings.max_symbols_per_exchange]
         if not cleaned_symbols:
             raise ValueError(f"No valid Perp USDT symbols found for {exchange.upper()}")
