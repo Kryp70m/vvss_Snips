@@ -2014,25 +2014,7 @@
     </style>
   </head>
   <body>
-    <div id="access-lock" class="access-lock">
-      <div class="access-card">
-        <h2>Alpha Sniper Access</h2>
-        <div class="muted">Enter your access PIN to open the platform.</div>
-        <div class="access-offer">
-          <b>TO GET PIN</b><br>
-          <span id="offer-subscription-label">Monthly</span>: <b id="offer-subscription-amount">$7</b> <del id="offer-compare-amount">~$11~</del><br>
-          <span id="offer-discount-text" class="amber">Discount valid only for 3 days</span><br><br>
-          <b id="offer-free-title">FREE USE</b><br>
-          <span id="offer-free-terms">Step 1. Create account on BingX through our link<br>Step 2. Deposit $100<br>Step 3. Take 10 trades of $100 with 10x leverage<br>Step 4. Send screenshot to admin and take free access for 1 day</span><br><br>
-          <span id="offer-contact-text">Contact Admin: <b>@ShibutradesYT</b></span>
-          <a id="offer-contact-link" class="dm-link" href="https://t.me/ShibutradesYT" target="_blank" rel="noreferrer" style="width:100%;margin-top:10px;padding:10px;">DM Admin</a>
-        </div>
-        <input id="access-pin" placeholder="PIN CODE" autocomplete="one-time-code" />
-        <button id="access-login">Open Platform</button>
-        <div id="access-message" class="amber" style="margin-top:10px;font-size:13px;"></div>
-      </div>
-    </div>
-    <div class="page">
+        <div class="page">
       <section class="price-strip">
         <div id="price-ticker" class="price-track">
           <span class="price-tile"><span class="price-symbol">BTC</span><span>Loading live prices...</span></span>
@@ -2612,37 +2594,12 @@
         renderSiteContent();
       }
       async function checkAccess() {
-        try {
-          const response = await fetch(API_BASE + "/api/access/status");
-          if (response.status === 401) {
-            accessReady = false;
-            $("access-lock").style.display = "flex";
-            return false;
-          }
-          const data = await response.json();
-          accessReady = !!data.authenticated;
-          if (accessReady) {
-            const stored = loadAccessSession();
-            if (data.expires_at && stored.token) saveAccessSession(Object.assign({}, stored, data));
-          }
-        } catch {
-          const token = accessToken();
-          if (token) {
-            accessReady = true;
-            $("access-message").textContent = "Offline. Reconnecting...";
-            setConnectionState("Offline - reconnecting", false);
-          } else {
-            accessReady = false;
-          }
-        }
-        $("access-lock").style.display = accessReady ? "none" : "flex";
-        return accessReady;
+        accessReady = true;
+        $("access-lock").style.display = "none";
+        return true; 
       }
-      async function enforceAccess() {
-        if (!(await checkAccess())) {
-          appStarted = false;
-          $("access-message").textContent = "Access expired or revoked. Enter a valid PIN.";
-        }
+      function enforceAccess() {
+        return; 
       }
       async function loginAccess() {
         const pin = $("access-pin").value.trim();

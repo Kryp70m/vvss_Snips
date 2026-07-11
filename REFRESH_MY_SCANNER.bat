@@ -4,16 +4,12 @@ echo ===================================================
 echo [1/3] Stopping existing containers and wiping cache...
 echo ===================================================
 docker-compose down --volumes --remove-orphans
-
-echo.
-echo ===================================================
-echo [2/3] Pulling updated code and rebuilding Docker...
-echo ===================================================
 docker-compose build --no-cache
+docker-compose up -d --force-recreate
 
 echo.
 echo ===================================================
-echo [3/3] Launching web engine and streaming matrix...
+echo [2/3] Launching web engine and streaming matrix...
 echo ===================================================
 docker-compose up -d
 
