@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import random
 import re
 from collections import defaultdict
 from collections.abc import Callable
@@ -10,8 +9,7 @@ from app.alerts.telegram import TelegramAlerter, send_telegram_alert
 from app.core.config import Settings
 from app.marketdata.binance import BinanceFuturesClient, chunked
 from app.marketdata.discovery import ExchangeDiscoveryClient
-from app.marketdata.mexc import MexcSpotClient
-from app.marketdata.perp import BinancePerpClient, MexcPerpClient
+from app.marketdata.perp import BinancePerpClient
 from app.models.events import BookTickerEvent, KlineEvent, OpenInterestEvent, TradeEvent, SMCMarketStructure
 from app.models.scanner import AlertEvent, LiquidationEvent, MetricSnapshot
 from app.persistence.cache import RedisCache
@@ -41,9 +39,7 @@ class ScannerService:
     ) -> None:
         self.settings = settings
         self.binance = binance
-        self.mexc = MexcSpotClient(settings.mexc_spot_ws_base, insecure_ssl=settings.binance_insecure_ssl)
         self.binance_perp = BinancePerpClient(settings.binance_perp_ws_base, insecure_ssl=settings.binance_insecure_ssl)
-        self.mexc_perp = MexcPerpClient(settings.mexc_perp_ws_base, insecure_ssl=settings.binance_insecure_ssl)
         self.discovery = ExchangeDiscoveryClient(insecure_ssl=settings.binance_insecure_ssl)
         self.cache = cache
         self.store = store
@@ -79,22 +75,13 @@ class ScannerService:
         self.liquidations: list[LiquidationEvent] = []
         self.signal_mode = "high_confidence"
         self.universe_mode = "auto"
-        self.exchange_universes: dict[str, list[str]] = {
-            "binance": list(self.symbols),
-            "mexc": [],
-        }
-        self.mexc_symbols: list[str] = []
+        
+        self.exchange_universes: dict[str, list[str]] = {"binance": list(self.symbols)}
         self.perp_states: dict[str, SymbolState] = {}
-        self.perp_exchange_universes: dict[str, list[str]] = {
-            "binance": [],
-            "mexc": [],
-        }
-        self.combo_exchange_universes: dict[str, list[str]] = {
-            "binance": [],
-            "mexc": [],
-        }
+        self.perp_exchange_universes: dict[str, list[str]] = {"binance": []}
+        self.combo_exchange_universes: dict[str, list[str]] = {"binance": []}
         self.binance_perp_symbols: list[str] = []
-        self.mexc_perp_symbols: list[str] = []
+        
         self._tasks: list[asyncio.Task] = []
         self._stream_tasks: list[asyncio.Task] = []
         self._perp_stream_tasks: list[asyncio.Task] = []
@@ -110,7 +97,7 @@ class ScannerService:
         self._last_alert_by_symbol: dict[str, int] = defaultdict(int)
         self._last_perp_alert_by_symbol: dict[str, int] = defaultdict(int)
         self._exchange_status: dict[str, dict] = {}
-        self.priority_watchlist: dict[str, set[str]] = {"binance": set(), "mexc": set()}
+        self.priority_watchlist: dict[str, set[str]] = {"binance": set()}
         self._universe_refresh_lock = asyncio.Lock()
         self._last_universe_refresh_ms = 0
         self._next_universe_refresh_ms = 0
@@ -118,70 +105,148 @@ class ScannerService:
         self._universe_refresh_error = ""
         self._debug_counters: dict[str, int] = defaultdict(int)
 
-        # V2 Structural Engine Instances Initializations
+        # Unified V2 Structural Dashboards Components
         self.v2_data_manager = RollingDataManager()
         self.v2_analyzer = SMCAnalyzer()
-
-    def _enabled_spot(self, exchange: str) -> bool:
-        return exchange.lower() in {ex.lower() for ex in self.settings.enabled_spot_exchanges}
-
-    def _enabled_perp(self, exchange: str) -> bool:
-        return exchange.lower() in {ex.lower() for ex in self.settings.enabled_perp_exchanges}
-
-    def _assert_enabled_spot(self, exchange: str) -> None:
-        if not self._enabled_spot(exchange):
-            raise ValueError(f"{exchange.upper()} is disabled in this production build. Only Binance and MEXC are active.")
-
-    def _assert_enabled_perp(self, exchange: str) -> None:
-        if not self._enabled_perp(exchange):
-            raise ValueError(f"{exchange.upper()} perp is disabled in this production build. Only Binance and MEXC are active.")
 
     async def start(self) -> None:
         if self._running:
             return
         self._running = True
-        await self.binance.connect()
-        await self.cache.connect()
-        await self.store.connect()
-        await self.telegram.connect()
+        logger.info("Initializing V2 Binance-only execution engine...")
+
+        # 1. Load your default or configured asset symbols universe
         await self._load_universe()
-        try:
-            await self.refresh_universe_once()
-        except Exception:
-            logger.exception("Initial common Spot+Perp universe refresh failed; continuing with fallback universe")
-        await self._bootstrap_natr()
-        async with self._symbol_lock:
-            if not self._streams_started:
-                await self._start_streams()
-            if not self._perp_streams_started:
-                await self._start_perp_streams()
-        self._tasks.extend(
-            [
-                asyncio.create_task(self._poll_open_interest()),
-                asyncio.create_task(self._roll_baselines()),
-                asyncio.create_task(self._scan_loop()),
-                asyncio.create_task(self._stream_health_loop()),
-                asyncio.create_task(self._auto_universe_refresh_loop()),
-            ]
-        )
+
+        # 2. Connect the live spot and perp data stream sockets
+        await self._start_streams()
+        await self._start_perp_streams()
+
+        # 3. Schedule historical data caching/NATR bootstrapping in the background
+        self._schedule_bootstrap_natr()
+
+        # 4. Spin up the concurrent system processing loops
+        self._tasks.extend([
+            asyncio.create_task(self._scan_loop()),
+            asyncio.create_task(self._roll_baselines()),
+            asyncio.create_task(self._stream_health_loop()),
+            asyncio.create_task(self._poll_open_interest()),
+            asyncio.create_task(self._auto_universe_refresh_loop()),
+        ])
+        logger.info("All concurrent scanner service background workers initialized successfully.")
 
     async def stop(self) -> None:
+        if not self._running:
+            return
         self._running = False
-        await self._stop_streams()
-        await self._stop_perp_streams()
+        logger.info("Initiating graceful engine shutdown sequence...")
+
+        # Cancel all processing loops safely
         for task in self._tasks:
             task.cancel()
-        if self._bootstrap_task:
-            self._bootstrap_task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
-        if self._bootstrap_task:
-            await asyncio.gather(self._bootstrap_task, return_exceptions=True)
-            self._bootstrap_task = None
         self._tasks.clear()
-        await self.cache.close()
-        await self.store.close()
-        await self.telegram.close()
-        await self.binance.close()
+
+        # Disconnect streaming websockets
+        await self._stop_streams()
+        await self._stop_perp_streams()
+
+        if self._bootstrap_task and not self._bootstrap_task.done():
+            self._bootstrap_task.cancel()
+
+        logger.info("Scanner engine shutdown sequence finalized.")
+
+    def _enabled_spot(self, exchange: str) -> bool:
+        return exchange.lower() == "binance"
+
+    def _enabled_perp(self, exchange: str) -> bool:
+        return exchange.lower() == "binance"
+
+    def _assert_enabled_spot(self, exchange: str) -> None:
+        if exchange.lower() != "binance":
+            raise ValueError(f"{exchange.upper()} is disabled. This scanner build is purely locked to Binance.")
+
+    def _assert_enabled_perp(self, exchange: str) -> None:
+        if exchange.lower() != "binance":
+            raise ValueError(f"{exchange.upper()} perp is disabled. This scanner build is purely locked to Binance.")
+
+    async def _start_streams(self) -> None:
+        if self._streams_started:
+            return
+        self._streams_started = True
+        self._stream_tasks = []
+        if self.symbols:
+            self._stream_tasks.append(asyncio.create_task(self._consume_binance_stream(list(self.symbols))))
+        self._stream_tasks.append(asyncio.create_task(self._consume_liquidations()))
+        logger.info("Spawned %s pure Binance execution stream connections successfully.", len(self._stream_tasks))
+
+    async def _start_perp_streams(self) -> None:
+        if self._perp_streams_started:
+            return
+        self._perp_streams_started = True
+        self._perp_stream_tasks = []
+        if self.binance_perp_symbols:
+            self._perp_stream_tasks.append(asyncio.create_task(self._consume_binance_perp_stream(list(self.binance_perp_symbols))))
+        logger.info("Spawned %s structural futures perp execution streams successfully.", len(self._perp_stream_tasks))
+
+    async def _stop_streams(self) -> None:
+        self._streams_started = False
+        for task in self._stream_tasks:
+            task.cancel()
+        await asyncio.gather(*self._stream_tasks, return_exceptions=True)
+        self._stream_tasks.clear()
+        try:
+            await self.binance.close()
+        except Exception:
+            pass
+
+    async def _stop_perp_streams(self) -> None:
+        self._perp_streams_started = False
+        for task in self._perp_stream_tasks:
+            task.cancel()
+        await asyncio.gather(*self._perp_stream_tasks, return_exceptions=True)
+        self._perp_stream_tasks.clear()
+        try:
+            await self.binance_perp.disconnect()
+            await self.binance_perp.close()
+        except Exception:
+            pass
+
+    async def _consume_binance_stream(self, symbols: list[str]) -> None:
+        async for event in self.binance.stream_market_data(symbols):
+            try:
+                state = self.states.get(self._state_key("binance", event.symbol))
+                if not state:
+                    continue
+                if isinstance(event, TradeEvent):
+                    self._debug_counters["trades_received"] += 1
+                    state.apply_trade(event)
+                elif isinstance(event, BookTickerEvent):
+                    state.apply_book_ticker(event)
+                elif isinstance(event, KlineEvent):
+                    state.apply_kline(event)
+                    if event.interval == "1m":
+                        self.v2_data_manager.update_candle(event.symbol, "1m", event.event_time, event.close, event.high, event.low, event.close, 0.0)
+                    elif event.interval == "1h":
+                        self.v2_data_manager.update_candle(event.symbol, "1h", event.event_time, event.close, event.high, event.low, event.close, 0.0)
+            except Exception as e:
+                logger.error(f"Error in Binance Spot stream: {e}")
+
+    async def _consume_binance_perp_stream(self, symbols: list[str]) -> None:
+        async for event in self.binance_perp.stream_market_data(symbols):
+            try:
+                state = self.perp_states.get(self._state_key("binance", event.symbol))
+                if not state:
+                    continue
+                if isinstance(event, TradeEvent):
+                    self._debug_counters["perp_trades_received"] += 1
+                    state.apply_trade(event)
+                elif isinstance(event, BookTickerEvent):
+                    state.apply_book_ticker(event)
+                elif isinstance(event, KlineEvent):
+                    state.apply_kline(event)
+            except Exception as e:
+                logger.error(f"Error in Binance Perp stream: {e}")
 
     async def replace_universe(self, symbols: list[str], market_caps: dict[str, float] | None = None) -> list[str]:
         cleaned = self._clean_symbols(symbols)
@@ -356,7 +421,7 @@ class ScannerService:
         return {ex: len(syms) for ex, syms in self.exchange_universes.items()}
 
     def perp_exchange_universe_summary(self) -> dict:
-        return {ex: len(syms) for ex, syms in self.perp_exchange_universes.items()}
+        return {ex: len(syms) for ex, syms in self.perp_exchange_universe_summary()}
 
     def combo_exchange_universe_summary(self) -> dict:
         return {ex: len(syms) for ex, syms in self.combo_exchange_universes.items()}
@@ -367,27 +432,17 @@ class ScannerService:
         exchange_key = self._clean_exchange(exchange)
         self._assert_enabled_spot(exchange_key)
         cleaned_symbols = self._clean_exchange_symbols(exchange_key, symbols)
-        # Safe V2 check for perp symbol validation methods
-        if exchange_key == "binance":
-            if hasattr(self.binance_perp, 'filter_perp_symbols'):
-                cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
-            elif hasattr(self.binance_perp, 'filter_symbols'):
-                cleaned_symbols = await self.binance_perp.filter_symbols(cleaned_symbols)
-        elif exchange_key == "mexc":
-            if hasattr(self.mexc_perp, 'filter_perp_symbols'):
-                cleaned_symbols = await self.mexc_perp.filter_perp_symbols(cleaned_symbols)
-            elif hasattr(self.mexc_perp, 'filter_symbols'):
-                cleaned_symbols = await self.mexc_perp.filter_symbols(cleaned_symbols)
+        if hasattr(self.binance_perp, 'filter_perp_symbols'):
+            cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
+        elif hasattr(self.binance_perp, 'filter_symbols'):
+            cleaned_symbols = await self.binance_perp.filter_symbols(cleaned_symbols)
         cleaned_symbols = cleaned_symbols[: self.settings.max_symbols_per_exchange]
         if not cleaned_symbols:
             raise ValueError(f"No valid Spot USDT symbols found for {exchange.upper()}")
         cleaned_caps = self._clean_market_caps(market_caps or {})
         async with self._symbol_lock:
             await self._stop_streams()
-            if exchange_key == "binance":
-                self.symbols = cleaned_symbols
-            elif exchange_key == "mexc":
-                self.mexc_symbols = cleaned_symbols
+            self.symbols = cleaned_symbols
             self.states = {
                 key: state for key, state in self.states.items() if not key.startswith(f"{exchange_key}:")
             }
@@ -419,27 +474,17 @@ class ScannerService:
         exchange_key = self._clean_exchange(exchange)
         self._assert_enabled_perp(exchange_key)
         cleaned_symbols = self._clean_exchange_symbols(exchange_key, symbols)
-        # Safe V2 check for perp symbol validation methods
-        if exchange_key == "binance":
-            if hasattr(self.binance_perp, 'filter_perp_symbols'):
-                cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
-            elif hasattr(self.binance_perp, 'filter_symbols'):
-                cleaned_symbols = await self.binance_perp.filter_symbols(cleaned_symbols)
-        elif exchange_key == "mexc":
-            if hasattr(self.mexc_perp, 'filter_perp_symbols'):
-                cleaned_symbols = await self.mexc_perp.filter_perp_symbols(cleaned_symbols)
-            elif hasattr(self.mexc_perp, 'filter_symbols'):
-                cleaned_symbols = await self.mexc_perp.filter_symbols(cleaned_symbols)
+        if hasattr(self.binance_perp, 'filter_perp_symbols'):
+            cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
+        elif hasattr(self.binance_perp, 'filter_symbols'):
+            cleaned_symbols = await self.binance_perp.filter_symbols(cleaned_symbols)
         cleaned_symbols = cleaned_symbols[: self.settings.max_symbols_per_exchange]
         if not cleaned_symbols:
             raise ValueError(f"No valid Perp USDT symbols found for {exchange.upper()}")
         cleaned_caps = self._clean_market_caps(market_caps or {})
         async with self._symbol_lock:
             await self._stop_perp_streams()
-            if exchange_key == "binance":
-                self.binance_perp_symbols = cleaned_symbols
-            elif exchange_key == "mexc":
-                self.mexc_perp_symbols = cleaned_symbols
+            self.binance_perp_symbols = cleaned_symbols
             self.perp_states = {
                 key: state for key, state in self.perp_states.items() if not key.startswith(f"{exchange_key}:")
             }
@@ -479,73 +524,39 @@ class ScannerService:
             raise ValueError(f"No {exchange_key.upper()} spot symbols discovered")
         return await self.replace_exchange_universe(exchange_key, symbols)
 
-    async def auto_perp_universe(self, exchange: str, limit: int | None = None) -> dict:
-        exchange_key = self._clean_exchange(exchange)
-        self._assert_enabled_perp(exchange_key)
-        limit = min(limit or self.settings.max_symbols_per_exchange, self.settings.max_symbols_per_exchange)
-        symbols = await self.discovery.discover_perp_symbols(
-            exchange_key,
-            limit=limit,
+    async def auto_spot_perp_common_universe(self, limit: int | None = None) -> list[dict]:
+        per_exchange_cap = min(limit or self.settings.max_symbols_per_exchange, self.settings.max_symbols_per_exchange)
+        disc_limit = max(self.settings.max_symbols_per_exchange * 10, 5000)
+        
+        spot_res = await self.discovery.discover_spot_symbols(
+            "binance", limit=disc_limit,
             min_quote_volume=self.settings.universe_min_quote_volume,
             max_quote_volume=self.settings.universe_max_quote_volume,
             max_price=self.settings.universe_max_price,
-            excluded_bases=set(self.settings.excluded_bases),
+            excluded_bases=set(self.settings.excluded_bases)
         )
-        if not symbols:
-            raise ValueError(f"No {exchange_key.upper()} perp symbols discovered")
-        return await self.replace_perp_universe(exchange_key, symbols)
-
-    async def auto_spot_perp_common_universe(self, limit: int | None = None) -> list[dict]:
-        exchanges = [ex for ex in ["binance", "mexc"] if self._enabled_spot(ex) and self._enabled_perp(ex)]
-        if not exchanges:
-            raise ValueError("No enabled exchanges for unified auto-load")
-        per_exchange_cap = min(limit or self.settings.max_symbols_per_exchange, self.settings.max_symbols_per_exchange)
-        disc_limit = max(self.settings.max_symbols_per_exchange * 10, 5000)
-        fetch_tasks = [
-            self.discovery.discover_spot_symbols(
-                ex,
-                limit=disc_limit,
-                min_quote_volume=self.settings.universe_min_quote_volume,
-                max_quote_volume=self.settings.universe_max_quote_volume,
-                max_price=self.settings.universe_max_price,
-                excluded_bases=set(self.settings.excluded_bases),
-            )
-            for ex in exchanges
-        ] + [
-            self.discovery.discover_perp_symbols(
-                ex,
-                limit=disc_limit,
-                min_quote_volume=self.settings.universe_min_quote_volume,
-                max_quote_volume=self.settings.universe_max_quote_volume,
-                max_price=self.settings.universe_max_price,
-                excluded_bases=set(self.settings.excluded_bases),
-            )
-            for ex in exchanges
-        ]
-        fetched = await asyncio.gather(*fetch_tasks, return_exceptions=True)
-        results: list[dict] = []
-        half = len(exchanges)
-        for i, ex in enumerate(exchanges):
-            spot_res = fetched[i]
-            perp_res = fetched[half + i]
-            if isinstance(spot_res, Exception) or isinstance(perp_res, Exception):
-                logger.error(f"Failed to fetch auto universe pool for {ex.upper()}: spot={spot_res}, perp={perp_res}")
-                continue
-            perp_set = set(perp_res or [])
-            common = [s for s in (spot_res or []) if s in perp_set][:per_exchange_cap]
-            if not common:
-                logger.warning(f"No common Spot+Perp symbols discovered for {ex.upper()}")
-                continue
-            await self.replace_exchange_universe(ex, common)
-            await self.replace_perp_universe(ex, common)
-            self.combo_exchange_universes[ex] = list(common)
-            summary = self._exchange_summary(ex, common, active=True)
-            summary.update({"mode": "spot_perp_common", "common_with_perp": True, "active": True})
-            results.append(summary)
-        if not results:
-            raise ValueError("Common Spot+Perp intersection yielded empty set across all active venues.")
+        perp_res = await self.discovery.discover_perp_symbols(
+            "binance", limit=disc_limit,
+            min_quote_volume=self.settings.universe_min_quote_volume,
+            max_quote_volume=self.settings.universe_max_quote_volume,
+            max_price=self.settings.universe_max_price,
+            excluded_bases=set(self.settings.excluded_bases)
+        )
+        
+        perp_set = set(perp_res or [])
+        common = [s for s in (spot_res or []) if s in perp_set][:per_exchange_cap]
+        
+        if not common:
+            raise ValueError("Binance Spot+Perp intersection yielded empty set.")
+            
+        await self.replace_exchange_universe("binance", common)
+        await self.replace_perp_universe("binance", common)
+        self.combo_exchange_universes["binance"] = list(common)
+        
+        summary = self._exchange_summary("binance", common, active=True)
+        summary.update({"mode": "spot_perp_common", "common_with_perp": True, "active": True})
         self.universe_mode = "auto"
-        return results
+        return [summary]
 
     async def upload_private_universe(
         self, exchange: str, uploaded_symbols: list[str], market_caps: dict[str, float] | None = None, limit: int = 700
@@ -672,161 +683,6 @@ class ScannerService:
                 logger.exception("On-demand common tracking intersection calculation boundary failed")
                 raise
 
-    def get_system_status_summary(self) -> dict:
-        spot_dead = self._streams_started and any(task.done() for task in self._stream_tasks)
-        perp_dead = self._perp_streams_started and any(task.done() for task in self._perp_stream_tasks)
-        return {
-            "running": self._running,
-            "spot_streams_active": self._streams_started,
-            "perp_streams_active": self._perp_streams_started,
-            "spot_dead_tasks": spot_dead,
-            "perp_dead_tasks": perp_dead,
-            "spot_symbols": len(self.states),
-            "perp_symbols": len(self.perp_states),
-            "binance_active_symbols": len(self.exchange_universes.get("binance", [])),
-            "mexc_active_symbols": len(self.exchange_universes.get("mexc", [])),
-            "total_active_symbols": len(self.exchange_universes.get("binance", [])) + len(self.exchange_universes.get("mexc", [])),
-            "rankings": len(self.rankings),
-            "perp_rankings": len(self.perp_rankings),
-            "exchange_status": self._exchange_status,
-            "reconnect_count": sum(int(item.get("attempts", 0) or 0) for item in self._exchange_status.values()),
-            "last_universe_refresh": self._last_universe_refresh_ms,
-            "next_universe_refresh": self._next_universe_refresh_ms,
-            "universe_refresh_count": self._universe_refresh_count,
-            "universe_refresh_error": self._universe_refresh_error,
-            "priority_watchlist_count": sum(len(symbols) for symbols in self.priority_watchlist.values()),
-            "priority_watchlist": {exchange: len(symbols) for exchange, symbols in self.priority_watchlist.items()},
-        }
-
-    def scanner_debug_status(self) -> dict:
-        return {
-            "counters": dict(self._debug_counters),
-            "memory_states": {
-                "spot_keys": list(self.states.keys())[:5],
-                "perp_keys": list(self.perp_states.keys())[:5],
-                "total_spot": len(self.states),
-                "total_perp": len(self.perp_states),
-            },
-            "timestamp": now_ms(),
-        }
-
-    async def _start_streams(self) -> None:
-        if self._streams_started:
-            return
-        self._streams_started = True
-        self._stream_tasks = []
-        if self._enabled_spot("binance") and self.symbols:
-            self._stream_tasks.append(asyncio.create_task(self._consume_binance_stream(list(self.symbols))))
-        if self._enabled_spot("mexc") and self.mexc_symbols:
-            self._stream_tasks.append(asyncio.create_task(self._consume_mexc_stream(list(self.mexc_symbols))))
-        self._stream_tasks.append(asyncio.create_task(self._consume_liquidations()))
-        logger.info("Spawned %s multi-exchange execution stream connections successfully.", len(self._stream_tasks))
-
-    async def _start_perp_streams(self) -> None:
-        if self._perp_streams_started:
-            return
-        self._perp_streams_started = True
-        self._perp_stream_tasks = []
-        if self._enabled_perp("binance") and self.binance_perp_symbols:
-            self._perp_stream_tasks.append(asyncio.create_task(self._consume_binance_perp_stream(list(self.binance_perp_symbols))))
-        if self._enabled_perp("mexc") and self.mexc_perp_symbols:
-            self._perp_stream_tasks.append(asyncio.create_task(self._consume_mexc_perp_stream(list(self.mexc_perp_symbols))))
-        logger.info("Spawned %s structural futures perp execution streams successfully.", len(self._perp_stream_tasks))
-
-    async def _stop_streams(self) -> None:
-        self._streams_started = False
-        for task in self._stream_tasks:
-            task.cancel()
-        await asyncio.gather(*self._stream_tasks, return_exceptions=True)
-        self._stream_tasks.clear()
-        
-        try:
-            await self.binance.close()
-        except Exception:
-            pass
-        try:
-            await self.mexc.close()
-        except Exception:
-            pass
-        try:
-            await self.mexc.disconnect()
-        except Exception:
-            pass
-
-    async def _stop_perp_streams(self) -> None:
-        self._perp_streams_started = False
-        for task in self._perp_stream_tasks:
-            task.cancel()
-        await asyncio.gather(*self._perp_stream_tasks, return_exceptions=True)
-        self._perp_stream_tasks.clear()
-        
-        try:
-            await self.binance_perp.disconnect()
-        except Exception:
-            pass
-        try:
-            await self.binance_perp.close()
-        except Exception:
-            pass
-        try:
-            await self.mexc_perp.disconnect()
-        except Exception:
-            pass
-        try:
-            await self.mexc_perp.close()
-        except Exception:
-            pass
-
-    async def _consume_binance_stream(self, symbols: list[str]) -> None:
-        async for event in self.binance.stream_market_data(symbols):
-            state = self.states.get(self._state_key(event.exchange, event.symbol))
-            if not state:
-                continue
-            if isinstance(event, TradeEvent):
-                self._debug_counters["trades_received"] += 1
-                state.apply_trade(event)
-                # Feed live trade vectors into the V2 tracking engine
-                self.v2_data_manager.record_tick(event.symbol, event.price, event.quantity * event.price)
-            elif isinstance(event, BookTickerEvent):
-                state.apply_book_ticker(event)
-            elif isinstance(event, KlineEvent):
-                state.apply_kline(event)
-                # Map completed candles dynamically to support structural analysis loops
-                if event.interval == "1m":
-                    self.v2_data_manager.update_candle(event.symbol, "1m", event.event_time, event.close, event.high, event.low, event.close, 0.0)
-                elif event.interval == "1h":
-                    self.v2_data_manager.update_candle(event.symbol, "1h", event.event_time, event.close, event.high, event.low, event.close, 0.0)
-
-    async def _consume_mexc_stream(self, symbols: list[str]) -> None:
-        async for event in self.mexc.stream_market_data(symbols):
-            state = self.states.get(self._state_key(event.exchange, event.symbol))
-            if not state:
-                continue
-            if isinstance(event, TradeEvent):
-                self._debug_counters["trades_received"] += 1
-                state.apply_trade(event)
-
-    async def _consume_binance_perp_stream(self, symbols: list[str]) -> None:
-        async for event in self.binance_perp.stream_market_data(symbols):
-            state = self.perp_states.get(self._state_key(event.exchange, event.symbol))
-            if not state:
-                continue
-            if isinstance(event, TradeEvent):
-                self._debug_counters["perp_trades_received"] += 1
-                state.apply_trade(event)
-            elif isinstance(event, BookTickerEvent):
-                state.apply_book_ticker(event)
-            elif isinstance(event, KlineEvent):
-                state.apply_kline(event)
-
-    async def _consume_mexc_perp_stream(self, symbols: list[str]) -> None:
-        async for event in self.mexc_perp.stream_market_data(symbols):
-            state = self.perp_states.get(self._state_key(event.exchange, event.symbol))
-            if state:
-                if isinstance(event, TradeEvent):
-                    self._debug_counters["perp_trades_received"] += 1
-                    state.apply_trade(event)
-
     async def _consume_liquidations(self) -> None:
         async for event in self.binance.stream_liquidations(
             self.settings.binance_liquidation_ws_url,
@@ -837,10 +693,6 @@ class ScannerService:
             await self.cache.publish_liquidation(event)
 
     async def evaluate_ict_confluences(self, symbol: str, base_price: float) -> dict:
-        """
-        Runs the V2 math validations over the historical sliding windows to filter out
-        Smart Money Traps (SMT) and establish clear institutional parameters.
-        """
         ltf = self.v2_data_manager.get_candles(symbol, "1m")
         htf = self.v2_data_manager.get_candles(symbol, "1h")
         btc_ref = self.v2_data_manager.get_candles("BTCUSDT", "1m")
@@ -872,8 +724,6 @@ class ScannerService:
         }
 
     async def _poll_open_interest(self) -> None:
-        if not self._enabled_perp("binance"):
-            return
         await asyncio.sleep(5)
         while self._running:
             try:
@@ -884,12 +734,11 @@ class ScannerService:
                         if not self._running:
                             break
                         try:
-                            # Re-routed to use the correct binance client discovered in the logs
                             tasks = [self.binance.fetch_open_interest(s) for s in batch]
                             events = await asyncio.gather(*tasks, return_exceptions=True)
                             for event in events:
                                 if isinstance(event, OpenInterestEvent):
-                                    state = self.perp_states.get(self._state_key(event.exchange, event.symbol))
+                                    state = self.perp_states.get(self._state_key("binance", event.symbol))
                                     if state:
                                         state.apply_open_interest(event)
                         except Exception as e:
@@ -952,9 +801,7 @@ class ScannerService:
                     perp_snapshots = [state.snapshot() for state in self.perp_states.values()]
                 self._exchange_status = {
                     "binance_spot": {"connected": self.binance.is_connected(), "attempts": self.binance._reconnect_attempts},
-                    "mexc_spot": {"connected": self.mexc.is_connected(), "attempts": self.mexc._reconnect_attempts},
                     "binance_perp": {"connected": self.binance_perp.is_connected(), "attempts": self.binance_perp._reconnect_attempts},
-                    "mexc_perp": {"connected": self.mexc_perp.is_connected(), "attempts": self.mexc_perp._reconnect_attempts},
                 }
                 computed_rankings = self.scorer.score_and_rank(spot_snapshots)
                 self.rankings = computed_rankings
@@ -985,7 +832,6 @@ class ScannerService:
             if ts - last_alert < self.settings.alert_cooldown_seconds * 1000:
                 continue
 
-            # Compute V2 structural conditions before dispatching notification events
             v2_context = await self.evaluate_ict_confluences(snapshot.symbol, snapshot.price)
 
             alert = AlertEvent(
@@ -1011,7 +857,6 @@ class ScannerService:
             await self.cache.publish_alert(alert)
             await self.store.save_alert(alert)
             
-            # Send High-Conviction notification to Telegram with reason narratives
             if v2_context["confidence_score"] >= 80.0:
                 await send_telegram_alert(
                     symbol=snapshot.symbol,
@@ -1261,7 +1106,7 @@ class ScannerService:
                     pass
 
     def _broadcast_perp_alert(self, alert: AlertEvent) -> None:
-        for q in list(self._perp_alert_subscribers):
+        for q in list(self._alert_subscribers):
             try:
                 q.put_nowait(alert)
             except asyncio.QueueFull:
@@ -1272,20 +1117,53 @@ class ScannerService:
                     pass
 
     def update_priority_watchlist(self, watchlist: dict) -> None:
-        """
-        Updates the prioritized token tracking matrix across active exchange nets.
-        Ensures strict compatibility with V2 initialization lifespan routines.
-        """
         logger.info(f"Synchronizing priority watchlists via system startup variables: {list(watchlist.keys())}")
         for exchange, symbols in watchlist.items():
-            for symbol in symbols:
-                try:
-                    asyncio.create_task(self.add_to_priority_watchlist(exchange, symbol))
-                except Exception as e:
-                    logger.error(f"Error appending startup token tracking for {symbol}: {e}")
+            if exchange.lower() == "binance":
+                for symbol in symbols:
+                    try:
+                        asyncio.create_task(self.add_to_priority_watchlist(exchange, symbol))
+                    except Exception as e:
+                        logger.error(f"Error appending startup token tracking for {symbol}: {e}")
+
+    def get_system_status_summary(self) -> dict:
+        spot_dead = self._streams_started and any(task.done() for task in self._stream_tasks)
+        perp_dead = self._perp_streams_started and any(task.done() for task in self._perp_stream_tasks)
+        return {
+            "running": self._running,
+            "spot_streams_active": self._streams_started,
+            "perp_streams_active": self._perp_streams_started,
+            "spot_dead_tasks": spot_dead,
+            "perp_dead_tasks": perp_dead,
+            "spot_symbols": len(self.states),
+            "perp_symbols": len(self.perp_states),
+            "binance_active_symbols": len(self.exchange_universes.get("binance", [])),
+            "total_active_symbols": len(self.exchange_universes.get("binance", [])),
+            "rankings": len(self.rankings),
+            "perp_rankings": len(self.perp_rankings),
+            "exchange_status": self._exchange_status,
+            "reconnect_count": sum(int(item.get("attempts", 0) or 0) for item in self._exchange_status.values()),
+            "last_universe_refresh": self._last_universe_refresh_ms,
+            "next_universe_refresh": self._next_universe_refresh_ms,
+            "universe_refresh_count": self._universe_refresh_count,
+            "universe_refresh_error": self._universe_refresh_error,
+            "priority_watchlist_count": sum(len(symbols) for symbols in self.priority_watchlist.values()),
+            "priority_watchlist": {exchange: len(symbols) for exchange, symbols in self.priority_watchlist.items()},
+        }
+
+    def scanner_debug_status(self) -> dict:
+        return {
+            "counters": dict(self._debug_counters),
+            "memory_states": {
+                "spot_keys": list(self.states.keys())[:5],
+                "perp_keys": list(self.perp_states.keys())[:5],
+                "total_spot": len(self.states),
+                "total_perp": len(self.perp_states),
+            },
+            "timestamp": now_ms(),
+        }
 
     async def dispatch_to_subscribers(self, event: SMCMarketStructure) -> None:
-        """Broadcasts unified V2 data payloads to all active UI websockets."""
         if not self._alert_subscribers:
             return
         for queue in list(self._alert_subscribers):
