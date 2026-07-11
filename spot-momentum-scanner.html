@@ -5055,10 +5055,7 @@
         renderComboDetail();
         renderComboAlerts();
         renderCategoryDashboard(comboRows);
-      }
-            renderCombined();
-          });
-        });
+      } 
         const loaded = comboLoadedSymbols();
         const combinedOpen = alerts.filter((alert) => alert.status === "open")
           .filter((alert) => !loaded.size || loaded.has(String(alert.symbol || "").toUpperCase()))
@@ -5066,9 +5063,9 @@
           .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0)).slice(0, 10);
         $("combo-alert-count").textContent = combinedOpen.length + " open";
         $("combo-alerts").innerHTML = combinedOpen.length ? combinedOpen.map((alert) => renderAlertList([alert], "")).join("") : '<div class="empty">No saved alerts yet.</div>';
-        renderMoveCategoryPanels(rows);
-        renderCombinedDetail(rows);
-      }
+        renderMoveCategoryPanels(comboRows);
+        renderCombinedDetail(comboRows);
+
 
       function renderCombinedDetail(rows) {
         const item = selectedCombo || rows[0];

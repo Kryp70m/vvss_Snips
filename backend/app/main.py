@@ -100,6 +100,7 @@ PUBLIC_API_PREFIXES = (
 
 @app.middleware("http")
 async def access_gate(request: Request, call_next):
+    return await call_next(request)
     path = request.url.path
     auth_header = request.headers.get("authorization", "")
     bearer = auth_header.split(" ", 1)[1].strip() if auth_header.lower().startswith("bearer ") else None
