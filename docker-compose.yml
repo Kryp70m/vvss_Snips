@@ -1,7 +1,3 @@
-volumes: 
-  - .\backend\app\ict_smc:/app/app/ict_smc:ro 
-version: '3.8'
-
 services:
   # 1. Redis Cache Instance
   redis-cache:
@@ -40,10 +36,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
-      - ./admin.html:/admin.html
-      - ./spot-momentum-scanner.html:/spot-momentum-scanner.html
+      - ./admin.html:/app/admin.html
+      - ./spot-momentum-scanner.html:/app/spot-momentum-scanner.html
       - ./ADMIN_PASSWORD.txt:/app/ADMIN_PASSWORD.txt
-      - ./ADMIN_PASSWORD.txt:/ADMIN_PASSWORD.txt
     environment:
       # Updated connection strings to route internally through Docker's DNS network
       - DATABASE_URL=postgresql://postgres:password@postgres-db:5432/scanner_db

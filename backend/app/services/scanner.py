@@ -367,10 +367,17 @@ class ScannerService:
         exchange_key = self._clean_exchange(exchange)
         self._assert_enabled_spot(exchange_key)
         cleaned_symbols = self._clean_exchange_symbols(exchange_key, symbols)
+        # Safe V2 check for perp symbol validation methods
         if exchange_key == "binance":
-            cleaned_symbols = await self.binance.filter_spot_symbols(cleaned_symbols)
+            if hasattr(self.binance_perp, 'filter_perp_symbols'):
+                cleaned_symbols = await self.binance_perp.filter_perp_symbols(cleaned_symbols)
+            elif hasattr(self.binance_perp, 'filter_symbols'):
+                cleaned_symbols = await self.binance_perp.filter_symbols(cleaned_symbols)
         elif exchange_key == "mexc":
-            cleaned_symbols = await self.mexc.filter_spot_symbols(cleaned_symbols)
+            if hasattr(self.mexc_perp, 'filter_perp_symbols'):
+                cleaned_symbols = await self.mexc_perp.filter_perp_symbols(cleaned_symbols)
+            elif hasattr(self.mexc_perp, 'filter_symbols'):
+                cleaned_symbols = await self.mexc_perp.filter_symbols(cleaned_symbols))
         cleaned_symbols = cleaned_symbols[: self.settings.max_symbols_per_exchange]
         if not cleaned_symbols:
             raise ValueError(f"No valid Spot USDT symbols found for {exchange.upper()}")
@@ -714,19 +721,16 @@ class ScannerService:
             task.cancel()
         await asyncio.gather(*self._stream_tasks, return_exceptions=True)
         self._stream_tasks.clear()
-        await self.binance.disconnect()
-        await self.mexc.disconnect()
-
-    async def _start_perp_streams(self) -> None:
-        if self._perp_streams_started:
-            return
-        self._perp_streams_started = True
-        self._perp_stream_tasks = []
-        if self._enabled_perp("binance") and self.binance_perp_symbols:
-            self._perp_stream_tasks.append(asyncio.create_task(self._consume_binance_perp_stream(list(self.binance_perp_symbols))))
-        if self._enabled_perp("mexc") and self.mexc_perp_symbols:
-            self._perp_stream_tasks.append(asyncio.create_task(self._consume_mexc_perp_stream(list(self.mexc_perp_symbols))))
-        logger.info("Spawned %s structural futures perp execution streams successfully.", len(self._perp_stream_tasks))
+        
+        # Safely shut down Binance Futures
+        if hasattr(self.binance, 'close'):
+            await self.binance.close()
+            
+        # Safely determine and execute MexcSpot teardown method
+        for method_name in ['disconnect', 'close', 'stop']:
+            if hasattr(self.mexc, method_name):
+                await getattr(self.mexc, method_name)()
+                break
 
     async def _stop_perp_streams(self) -> None:
         self._perp_streams_started = False
@@ -734,8 +738,23 @@ class ScannerService:
             task.cancel()
         await asyncio.gather(*self._perp_stream_tasks, return_exceptions=True)
         self._perp_stream_tasks.clear()
-        await self.binance_perp.disconnect()
-        await self.mexc_perp.disconnect()
+        
+        # Safely handle Perp connections
+        for client in [self.binance_perp, self.mexc_perp]:
+            for method_name in ['close', 'disconnect', 'stop']:
+                if hasattr(client, method_name):
+                    await getattr(client, method_name)()
+                    break
+
+    async def _stop_perp_streams(self) -> None:
+        self._perp_streams_started = False
+        for task in self._perp_stream_tasks:
+            task.cancel()
+        await asyncio.gather(*self._perp_stream_tasks, return_exceptions=True)
+        self._perp_stream_tasks.clear()
+        # BOTH CHANGED TO .close()
+        await self.binance_perp.close()
+        await self.mexc_perp.close()
 
     async def _consume_binance_stream(self, symbols: list[str]) -> None:
         async for event in self.binance.stream_market_data(symbols):
@@ -1227,7 +1246,20 @@ class ScannerService:
                 except Exception:
                     pass
 
-async def dispatch_to_subscribers(self, event: VolumeSurgeEvent) -> None:
+    def update_priority_watchlist(self, watchlist: dict) -> None:
+        """
+        Updates the prioritized token tracking matrix across active exchange nets.
+        Ensures strict compatibility with V2 initialization lifespan routines.
+        """
+        logger.info(f"Synchronizing priority watchlists via system startup variables: {list(watchlist.keys())}")
+        for exchange, symbols in watchlist.items():
+            for symbol in symbols:
+                try:
+                    asyncio.create_task(self.add_to_priority_watchlist(exchange, symbol))
+                except Exception as e:
+                    logger.error(f"Error appending startup token tracking for {symbol}: {e}")
+
+    async def dispatch_to_subscribers(self, event: SMCMarketStructure) -> None:
         """Broadcasts unified V2 data payloads to all active UI websockets."""
         if not self._alert_subscribers:
             return
