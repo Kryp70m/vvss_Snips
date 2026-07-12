@@ -44,7 +44,7 @@ services:
       - DATABASE_URL=postgresql://postgres:password@postgres-db:5432/scanner_db
       - REDIS_URL=redis://redis-cache:6379
       - LOCAL_DEV_MODE=true
-      - DEV_PIN=123
+      - DEV_PIN=12345
       - TELEGRAM_BOT_TOKEN=8721494793:AAF6BKVKyJZ0Lo80IVNll-FlNorJIpnkH1M
       - TELEGRAM_CHAT_ID=-5554976734
     depends_on:

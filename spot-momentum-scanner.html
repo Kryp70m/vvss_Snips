@@ -2569,22 +2569,30 @@
 
       function $(id) { return document.getElementById(id); }
       function renderSiteContent() {
-        $("offer-subscription-label").textContent = siteContent.subscription_label || "Monthly";
-        $("offer-subscription-amount").textContent = siteContent.subscription_amount || "$7";
-        $("offer-compare-amount").textContent = "~" + String(siteContent.subscription_compare_amount || "$11").replace(/^~+/, "") + "~";
-        $("offer-discount-text").textContent = siteContent.discount_text || "";
-        $("offer-free-title").textContent = siteContent.free_use_title || "FREE USE";
-        $("offer-free-terms").innerHTML = linesToHtml(siteContent.free_use_terms || "");
-        $("offer-contact-text").innerHTML = linesToHtml(siteContent.contact_text || "Contact Admin");
-        $("offer-contact-link").href = siteContent.contact_link || "https://t.me/ShibutradesYT";
-        $("footer-free-text").textContent = siteContent.footer_free_text || "";
-        $("admin-chat-title").textContent = siteContent.admin_chat_title || "ADMIN CHAT";
-        const messages = Array.isArray(siteContent.admin_chat_messages) && siteContent.admin_chat_messages.length
-          ? siteContent.admin_chat_messages
-          : [{ message: siteContent.admin_chat_message || "No admin updates yet.", created_at: Date.now() }];
-        $("admin-chat-list").innerHTML = messages.slice(0, 50).map((item) =>
-          '<div class="chat-message"><div class="chat-time">' + dateTime(Date.parse(item.created_at) || Number(item.created_at) || Date.now()) + '</div><div class="value">' + escapeHtml(item.message || "") + '</div></div>'
-        ).join("");
+        try {
+          // Safety guards: skip pricing/promo blocks if they don't exist in this UI layout
+          if ($("offer-subscription-label")) $("offer-subscription-label").textContent = siteContent.subscription_label || "Monthly";
+          if ($("offer-subscription-amount")) $("offer-subscription-amount").textContent = siteContent.subscription_amount || "$7";
+          if ($("offer-compare-amount")) $("offer-compare-amount").textContent = "~" + String(siteContent.subscription_compare_amount || "$11").replace(/^~+/, "") + "~";
+          if ($("offer-discount-text")) $("offer-discount-text").textContent = siteContent.discount_text || "";
+          if ($("offer-free-title")) $("offer-free-title").textContent = siteContent.free_use_title || "FREE USE";
+          if ($("offer-free-terms")) $("offer-free-terms").innerHTML = linesToHtml(siteContent.free_use_terms || "");
+          if ($("offer-contact-text")) $("offer-contact-text").innerHTML = linesToHtml(siteContent.contact_text || "123");
+          if ($("offer-contact-link")) $("offer-contact-link").href = siteContent.contact_link || "123";
+          if ($("footer-free-text")) $("footer-free-text").textContent = siteContent.footer_free_text || "";
+          if ($("admin-chat-title")) $("admin-chat-title").textContent = siteContent.admin_chat_title || "A123";
+          
+          if ($("admin-chat-list")) {
+            const messages = Array.isArray(siteContent.admin_chat_messages) && siteContent.admin_chat_messages.length
+              ? siteContent.admin_chat_messages
+              : [{ message: siteContent.admin_chat_message || "No admin updates yet.", created_at: Date.now() }];
+            $("admin-chat-list").innerHTML = messages.slice(0, 50).map((item) =>
+              '<div class="chat-message"><div class="chat-time">' + dateTime(Date.parse(item.created_at) || Number(item.created_at) || Date.now()) + '</div><div class="value">' + escapeHtml(item.message || "") + '</div></div>'
+            ).join("");
+          }
+        } catch (err) {
+          console.log("Legacy UI blocks bypassed safely.");
+        }
       }
       async function loadSiteContent() {
         try {
@@ -2595,7 +2603,7 @@
       }
       async function checkAccess() {
         accessReady = true;
-        $("access-lock").style.display = "none";
+        if ($("access-lock")) $("access-lock").style.display = "none";
         return true; 
       }
       function enforceAccess() {
@@ -4953,7 +4961,24 @@
       }
 
       function comboLoadedSymbols() {
-        return new Set((comboUniverse.exchanges || []).flatMap((item) => item.symbols || []).map((symbol) => String(symbol || "").toUpperCase()));
+        // V2 Safety Guard: Convert exchanges object to a flat array if necessary
+        const exchangeList = comboUniverse && comboUniverse.exchanges 
+          ? (Array.isArray(comboUniverse.exchanges) ? comboUniverse.exchanges : Object.values(comboUniverse.exchanges)) 
+          : [];
+
+        return new Set(
+          exchangeList
+            .flatMap((item) => {
+              if (!item) return [];
+              // Handle if symbols itself is an object or array
+              return Array.isArray(item.symbols) ? item.symbols : (item.symbols ? Object.values(item.symbols) : []);
+            })
+            .map((symbol) => {
+              // Extract string name if symbol elements are structured objects
+              const symStr = symbol && typeof symbol === 'object' ? (symbol.symbol || symbol.name || '') : symbol;
+              return String(symStr || "").toUpperCase();
+            })
+        );
       }
 
       function withComboTarget(item) {
@@ -5052,9 +5077,9 @@
           });
         });
 
-        renderComboDetail();
-        renderComboAlerts();
-        renderCategoryDashboard(comboRows);
+        renderCombinedDetail(validRows);
+        // renderComboAlerts();
+        // renderCategoryDashboard(comboRows);
       } 
         const loaded = comboLoadedSymbols();
         const combinedOpen = alerts.filter((alert) => alert.status === "open")
@@ -5063,8 +5088,11 @@
           .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0)).slice(0, 10);
         $("combo-alert-count").textContent = combinedOpen.length + " open";
         $("combo-alerts").innerHTML = combinedOpen.length ? combinedOpen.map((alert) => renderAlertList([alert], "")).join("") : '<div class="empty">No saved alerts yet.</div>';
-        renderMoveCategoryPanels(comboRows);
-        renderCombinedDetail(comboRows);
+        // Smart safety net: handles both flat V1 lists and nested V2 strategy structures safely
+        const validRows = Array.isArray(rows) ? rows : (rows && typeof rows === 'object' ? Object.values(rows).flat() : []);
+        
+        renderMoveCategoryPanels(validRows);
+        renderCombinedDetail(validRows);
 
 
       function renderCombinedDetail(rows) {
@@ -5157,11 +5185,14 @@
         }, 15000);
         connect();
       }
-      $("access-login").addEventListener("click", () => loginAccess());
-      $("user-logout").addEventListener("click", () => logoutUser());
-      $("access-pin").addEventListener("keydown", (event) => {
-        if (event.key === "Enter") loginAccess();
-      });
+      // Safety guards: prevent crashes if login UI elements are hidden or removed
+      if ($("access-login")) $("access-login").addEventListener("click", () => loginAccess());
+      if ($("user-logout")) $("user-logout").addEventListener("click", () => logoutUser());
+      if ($("access-pin")) {
+        $("access-pin").addEventListener("keydown", (event) => {
+          if (event.key === "Enter") loginAccess();
+        });
+      }
       startApp();
     </script>
   </body>
