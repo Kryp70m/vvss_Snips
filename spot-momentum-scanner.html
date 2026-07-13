@@ -2014,7 +2014,25 @@
     </style>
   </head>
   <body>
-        <div class="page">
+    <div id="access-lock" class="access-lock">
+      <div class="access-card">
+        <h2>Alpha Sniper Access</h2>
+        <div class="muted">Enter your access PIN to open the platform.</div>
+        <div class="access-offer">
+          <b>TO GET PIN</b><br>
+          <span id="offer-subscription-label">Monthly</span>: <b id="offer-subscription-amount">$7</b> <del id="offer-compare-amount">~$11~</del><br>
+          <span id="offer-discount-text" class="amber">Discount valid only for 3 days</span><br><br>
+          <b id="offer-free-title">FREE USE</b><br>
+          <span id="offer-free-terms">Step 1. Create account on BingX through our link<br>Step 2. Deposit $100<br>Step 3. Take 10 trades of $100 with 10x leverage<br>Step 4. Send screenshot to admin and take free access for 1 day</span><br><br>
+          <span id="offer-contact-text">Contact Admin: <b>@ShibutradesYT</b></span>
+          <a id="offer-contact-link" class="dm-link" href="https://t.me/ShibutradesYT" target="_blank" rel="noreferrer" style="width:100%;margin-top:10px;padding:10px;">DM Admin</a>
+        </div>
+        <input id="access-pin" placeholder="PIN CODE" autocomplete="one-time-code" />
+        <button id="access-login">Open Platform</button>
+        <div id="access-message" class="amber" style="margin-top:10px;font-size:13px;"></div>
+      </div>
+    </div>
+    <div class="page">
       <section class="price-strip">
         <div id="price-ticker" class="price-track">
           <span class="price-tile"><span class="price-symbol">BTC</span><span>Loading live prices...</span></span>
@@ -2569,30 +2587,22 @@
 
       function $(id) { return document.getElementById(id); }
       function renderSiteContent() {
-        try {
-          // Safety guards: skip pricing/promo blocks if they don't exist in this UI layout
-          if ($("offer-subscription-label")) $("offer-subscription-label").textContent = siteContent.subscription_label || "Monthly";
-          if ($("offer-subscription-amount")) $("offer-subscription-amount").textContent = siteContent.subscription_amount || "$7";
-          if ($("offer-compare-amount")) $("offer-compare-amount").textContent = "~" + String(siteContent.subscription_compare_amount || "$11").replace(/^~+/, "") + "~";
-          if ($("offer-discount-text")) $("offer-discount-text").textContent = siteContent.discount_text || "";
-          if ($("offer-free-title")) $("offer-free-title").textContent = siteContent.free_use_title || "FREE USE";
-          if ($("offer-free-terms")) $("offer-free-terms").innerHTML = linesToHtml(siteContent.free_use_terms || "");
-          if ($("offer-contact-text")) $("offer-contact-text").innerHTML = linesToHtml(siteContent.contact_text || "123");
-          if ($("offer-contact-link")) $("offer-contact-link").href = siteContent.contact_link || "123";
-          if ($("footer-free-text")) $("footer-free-text").textContent = siteContent.footer_free_text || "";
-          if ($("admin-chat-title")) $("admin-chat-title").textContent = siteContent.admin_chat_title || "A123";
-          
-          if ($("admin-chat-list")) {
-            const messages = Array.isArray(siteContent.admin_chat_messages) && siteContent.admin_chat_messages.length
-              ? siteContent.admin_chat_messages
-              : [{ message: siteContent.admin_chat_message || "No admin updates yet.", created_at: Date.now() }];
-            $("admin-chat-list").innerHTML = messages.slice(0, 50).map((item) =>
-              '<div class="chat-message"><div class="chat-time">' + dateTime(Date.parse(item.created_at) || Number(item.created_at) || Date.now()) + '</div><div class="value">' + escapeHtml(item.message || "") + '</div></div>'
-            ).join("");
-          }
-        } catch (err) {
-          console.log("Legacy UI blocks bypassed safely.");
-        }
+        $("offer-subscription-label").textContent = siteContent.subscription_label || "Monthly";
+        $("offer-subscription-amount").textContent = siteContent.subscription_amount || "$7";
+        $("offer-compare-amount").textContent = "~" + String(siteContent.subscription_compare_amount || "$11").replace(/^~+/, "") + "~";
+        $("offer-discount-text").textContent = siteContent.discount_text || "";
+        $("offer-free-title").textContent = siteContent.free_use_title || "FREE USE";
+        $("offer-free-terms").innerHTML = linesToHtml(siteContent.free_use_terms || "");
+        $("offer-contact-text").innerHTML = linesToHtml(siteContent.contact_text || "Contact Admin");
+        $("offer-contact-link").href = siteContent.contact_link || "https://t.me/ShibutradesYT";
+        $("footer-free-text").textContent = siteContent.footer_free_text || "";
+        $("admin-chat-title").textContent = siteContent.admin_chat_title || "ADMIN CHAT";
+        const messages = Array.isArray(siteContent.admin_chat_messages) && siteContent.admin_chat_messages.length
+          ? siteContent.admin_chat_messages
+          : [{ message: siteContent.admin_chat_message || "No admin updates yet.", created_at: Date.now() }];
+        $("admin-chat-list").innerHTML = messages.slice(0, 50).map((item) =>
+          '<div class="chat-message"><div class="chat-time">' + dateTime(Date.parse(item.created_at) || Number(item.created_at) || Date.now()) + '</div><div class="value">' + escapeHtml(item.message || "") + '</div></div>'
+        ).join("");
       }
       async function loadSiteContent() {
         try {
@@ -2602,12 +2612,37 @@
         renderSiteContent();
       }
       async function checkAccess() {
-        accessReady = true;
-        if ($("access-lock")) $("access-lock").style.display = "none";
-        return true; 
+        try {
+          const response = await fetch(API_BASE + "/api/access/status");
+          if (response.status === 401) {
+            accessReady = false;
+            $("access-lock").style.display = "flex";
+            return false;
+          }
+          const data = await response.json();
+          accessReady = !!data.authenticated;
+          if (accessReady) {
+            const stored = loadAccessSession();
+            if (data.expires_at && stored.token) saveAccessSession(Object.assign({}, stored, data));
+          }
+        } catch {
+          const token = accessToken();
+          if (token) {
+            accessReady = true;
+            $("access-message").textContent = "Offline. Reconnecting...";
+            setConnectionState("Offline - reconnecting", false);
+          } else {
+            accessReady = false;
+          }
+        }
+        $("access-lock").style.display = accessReady ? "none" : "flex";
+        return accessReady;
       }
-      function enforceAccess() {
-        return; 
+      async function enforceAccess() {
+        if (!(await checkAccess())) {
+          appStarted = false;
+          $("access-message").textContent = "Access expired or revoked. Enter a valid PIN.";
+        }
       }
       async function loginAccess() {
         const pin = $("access-pin").value.trim();
@@ -4961,24 +4996,7 @@
       }
 
       function comboLoadedSymbols() {
-        // V2 Safety Guard: Convert exchanges object to a flat array if necessary
-        const exchangeList = comboUniverse && comboUniverse.exchanges 
-          ? (Array.isArray(comboUniverse.exchanges) ? comboUniverse.exchanges : Object.values(comboUniverse.exchanges)) 
-          : [];
-
-        return new Set(
-          exchangeList
-            .flatMap((item) => {
-              if (!item) return [];
-              // Handle if symbols itself is an object or array
-              return Array.isArray(item.symbols) ? item.symbols : (item.symbols ? Object.values(item.symbols) : []);
-            })
-            .map((symbol) => {
-              // Extract string name if symbol elements are structured objects
-              const symStr = symbol && typeof symbol === 'object' ? (symbol.symbol || symbol.name || '') : symbol;
-              return String(symStr || "").toUpperCase();
-            })
-        );
+        return new Set((comboUniverse.exchanges || []).flatMap((item) => item.symbols || []).map((symbol) => String(symbol || "").toUpperCase()));
       }
 
       function withComboTarget(item) {
@@ -5036,51 +5054,35 @@
       }
 
       function renderCombined() {
-        const comboRows = combinedFreshRows();
-        const visibleRows = comboRows.slice(0, 20);
-        $("combo-fresh-count").textContent = comboRows.length + " fresh";
-        $("combo-empty").style.display = comboRows.length ? "none" : "block";
-        
-        $("combo-rows").innerHTML = visibleRows.map((item) => {
-          const isPerp = String(item.exchange || "").toLowerCase().includes("perp");
-          const side = item.direction || item.last_big_order_side || "";
+        const rows = combinedFreshRows();
+        $("combo-fresh-count").textContent = rows.length + " fresh";
+        $("combo-empty").style.display = rows.length ? "none" : "block";
+        $("combo-rows").innerHTML = rows.map((item, index) => {
+          const baseExchange = String(item.exchange || "binance").replace("_perp", "").replace("_future", "").replace("_swap", "");
+          const perpExchange = baseExchange + "_perp";
+          const volumeSide = item.last_big_order_side || item.direction || "";
           const favClass = favorites.has(item.symbol) ? "fav-btn active" : "fav-btn";
-          const marketType = isPerp ? "combo-perp" : "combo-spot";
-          const exchangeLabel = String(item.exchange || "binance").replace("_perp", "").toUpperCase();
-          
-          // Formats institutional manual trading data points cleanly
-          const entryVal = price(item.entry_price || item.print_price || item.price || 0);
-          const stopLossVal = item.stop_loss_price ? price(item.stop_loss_price) : "N/A";
-          const targetVal = item.target_price ? price(item.target_price) : (item.take_profit_price ? price(item.take_profit_price) : "N/A");
-          
-          return '<tr class="' + freshAlertVisualClass(item) + '" data-combo-id="' + item.exchange + ':' + item.symbol + '">' +
-            '<td>' + sideBadge(side) + '<div class="muted" style="font-size:10px;">' + (isPerp ? "PERP" : "SPOT") + '</div></td>' +
-            '<td><button class="' + favClass + '" data-fav="' + item.symbol + '">&#9733;</button> ' + chartTrigger(item.symbol, item.exchange, marketType, item.symbol, "value coin-name") + '<div class="muted" style="font-size:11px;">' + exchangeLabel + '</div></td>' +
-            '<td>' + money(item.last_big_order_quote) + '</td>' +
-            '<td><div style="font-weight:bold;color:#fff;">' + entryVal + '</div><div style="font-size:10px;color:#ff3366;margin-top:2px;">SL: ' + stopLossVal + '</div></td>' +
+          return '<tr class="' + freshAlertVisualClass(item) + '" data-combo-index="' + index + '">' +
+            '<td><span class="pill good">LIVE ALERT</span><div class="muted" style="font-size:11px;">ACTIVE MARKET</div></td>' +
+            '<td><button class="' + favClass + '" data-fav="' + item.symbol + '">&#9733;</button> ' + chartTrigger(item.symbol, perpExchange, "combo-perp", item.symbol, "value coin-name") + '<div class="muted" style="font-size:11px;">' + publicExchangeLabel(baseExchange) + '</div><div>' + chartTrigger(item.symbol, perpExchange, "combo-perp", "Open Chart", "chart") + '</div></td>' +
+            '<td>' + money(item.last_big_order_quote) + '<div class="' + sideClass(volumeSide) + '" style="font-size:11px;">' + String(volumeSide || "volume").toUpperCase() + '</div></td>' +
+            '<td>' + price(item.print_price || item.entry_price || item.price) + '</td>' +
             '<td>' + formatAge(displayAgeSeconds(item)) + '</td>' +
-            '<td><div style="font-weight:bold;color:#00ff88;">' + targetVal + '</div><div class="muted" style="font-size:10px;margin-top:2px;">' + targetLabelForPanel(item, "combo") + '</div></td>' +
-            '<td><span class="' + scoreClass(item.ignition_probability) + '">' + number(item.ignition_probability) + '%</span></td>' +
+            '<td>' + targetLabelForPanel(item, "combo") + '</td>' +
+            '<td><span class="' + scoreClass(item.ignition_probability) + '">' + number(item.ignition_probability) + '</span></td>' +
           '</tr>';
         }).join("");
-
-        document.querySelectorAll("#combo-rows tr[data-combo-id]").forEach((row) => {
+        document.querySelectorAll("tr[data-combo-index]").forEach((row) => {
           row.addEventListener("click", (event) => {
             if (event.target.closest("[data-embed-chart], [data-fav]")) return;
-            const [exchange, symbol] = row.dataset.comboId.split(":");
-            const comboRows = combinedFreshRows();
-            selectedCombo = comboRows.find((item) => item.symbol === symbol && item.exchange === exchange);
+            selectedCombo = rows[Number(row.dataset.comboIndex || 0)] || null;
             if (selectedCombo) {
-              selectedComboChart = { symbol: selectedCombo.symbol, exchange: selectedCombo.exchange };
+              const baseExchange = String(selectedCombo.exchange || "binance").replace("_perp", "").replace("_future", "").replace("_swap", "");
+              selectedComboChart = { symbol: selectedCombo.symbol, exchange: baseExchange + "_perp" };
             }
-            render();
+            renderCombined();
           });
         });
-
-        renderCombinedDetail(validRows);
-        // renderComboAlerts();
-        // renderCategoryDashboard(comboRows);
-      } 
         const loaded = comboLoadedSymbols();
         const combinedOpen = alerts.filter((alert) => alert.status === "open")
           .filter((alert) => !loaded.size || loaded.has(String(alert.symbol || "").toUpperCase()))
@@ -5088,12 +5090,9 @@
           .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0)).slice(0, 10);
         $("combo-alert-count").textContent = combinedOpen.length + " open";
         $("combo-alerts").innerHTML = combinedOpen.length ? combinedOpen.map((alert) => renderAlertList([alert], "")).join("") : '<div class="empty">No saved alerts yet.</div>';
-        // Smart safety net: handles both flat V1 lists and nested V2 strategy structures safely
-        const validRows = Array.isArray(rows) ? rows : (rows && typeof rows === 'object' ? Object.values(rows).flat() : []);
-        
-        renderMoveCategoryPanels(validRows);
-        renderCombinedDetail(validRows);
-
+        renderMoveCategoryPanels(rows);
+        renderCombinedDetail(rows);
+      }
 
       function renderCombinedDetail(rows) {
         const item = selectedCombo || rows[0];
@@ -5185,14 +5184,11 @@
         }, 15000);
         connect();
       }
-      // Safety guards: prevent crashes if login UI elements are hidden or removed
-      if ($("access-login")) $("access-login").addEventListener("click", () => loginAccess());
-      if ($("user-logout")) $("user-logout").addEventListener("click", () => logoutUser());
-      if ($("access-pin")) {
-        $("access-pin").addEventListener("keydown", (event) => {
-          if (event.key === "Enter") loginAccess();
-        });
-      }
+      $("access-login").addEventListener("click", () => loginAccess());
+      $("user-logout").addEventListener("click", () => logoutUser());
+      $("access-pin").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") loginAccess();
+      });
       startApp();
     </script>
   </body>

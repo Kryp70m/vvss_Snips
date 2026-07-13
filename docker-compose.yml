@@ -29,8 +29,8 @@ services:
   sniper:
     image: alpha-sniper-backend:latest
     build: 
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: sniper-app
     ports:
       - "8000:8000"
@@ -40,7 +40,6 @@ services:
       - ./spot-momentum-scanner.html:/app/spot-momentum-scanner.html
       - ./ADMIN_PASSWORD.txt:/app/ADMIN_PASSWORD.txt
     environment:
-      # Updated connection strings to route internally through Docker's DNS network
       - DATABASE_URL=postgresql://postgres:password@postgres-db:5432/scanner_db
       - REDIS_URL=redis://redis-cache:6379
       - LOCAL_DEV_MODE=true

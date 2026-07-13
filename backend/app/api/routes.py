@@ -171,39 +171,50 @@ def bearer_token(request: Request) -> str | None:
 
 
 def current_session(request: Request) -> dict | None:
-    # V2 Bypass: Always return an active authorized user session
-    return {"role": "user", "expires_at": "2030-01-01T00:00:00", "username": "bypass"}
+    access = request.app.state.access
+    return (
+        access.check_session(bearer_token(request), {"user"})
+        or access.check_session(bearer_token(request), {"admin"})
+        or access.check_session(request.cookies.get("alpha_access_token"), {"user"})
+        or access.check_session(request.cookies.get("alpha_admin_token"), {"admin"})
+    )
 
 
 def require_admin_session(request: Request) -> dict:
-    # V2 Bypass: Always return an active authorized admin session
-    return {"role": "admin", "expires_at": "2030-01-01T00:00:00", "username": "bypass"}
+    access = request.app.state.access
+    session = (
+        access.check_session(bearer_token(request), {"admin"})
+        or access.check_session(request.cookies.get("alpha_admin_token"), {"admin"})
+    )
+    if not session:
+        raise HTTPException(status_code=401, detail="Owner login required")
+    return session
 
 
 def target_payload(settings: dict) -> dict:
     return {
-        "target_move_pct": settings.get("spot_target_move_pct", 5.0),
+        "target_move_pct": settings["spot_target_move_pct"],
         "min": 1,
         "max": 30,
         "metal_min": 1,
         "metal_max": 100,
-        "paxg_target_move_usd": settings.get("paxg_target_move_usd", 10.0),
-        "xag_target_move_usd": settings.get("xag_target_move_usd", 1.0),
+        "paxg_target_move_usd": settings["paxg_target_move_usd"],
+        "xag_target_move_usd": settings["xag_target_move_usd"],
     }
 
 
 def perp_target_payload(settings: dict) -> dict:
-    return {"target_move_pct": settings.get("perp_target_move_pct", 5.0), "min": 1, "max": 30}
+    return {"target_move_pct": settings["perp_target_move_pct"], "min": 1, "max": 30}
 
 
 def advanced_payload(settings: dict) -> dict:
     return {
-        "desired_move_sensitivity": settings.get("desired_move_sensitivity", 1.0),
-        "manipulation_sensitivity": settings.get("manipulation_sensitivity", 1.0),
-        "retracement_percentage": settings.get("retracement_percentage", 38.2),
-        "liquidity_sensitivity": settings.get("liquidity_sensitivity", 1.0),
-        "volume_shock_multiplier": settings.get("volume_shock_multiplier", 1.5),
-        "market_cap_filter": settings.get("market_cap_filter", 0.0),
+        "desired_move_sensitivity": settings["desired_move_sensitivity"],
+        "manipulation_sensitivity": settings["manipulation_sensitivity"],
+        "retracement_percentage": settings["retracement_percentage"],
+        "liquidity_sensitivity": settings["liquidity_sensitivity"],
+        "volume_shock_multiplier": settings["volume_shock_multiplier"],
+        "market_cap_filter": settings["market_cap_filter"],
     }
 
 
@@ -251,13 +262,7 @@ async def health(request: Request) -> dict:
         memory_mb = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) / 1024.0
     except Exception:
         memory_mb = 0.0
-
-    # Safety wrapper to prevent V2 method absence crashes
-    try:
-        scanner_status = service.health_status()
-    except AttributeError:
-        scanner_status = {"status": "online", "exchange_status": {"binance": "connected"}}
-
+    scanner_status = service.health_status()
     return {
         "status": "ok",
         "uptime_seconds": max(0, int(time.time() - uptime_started_at)),
@@ -639,10 +644,7 @@ async def auto_exchange_universe(exchange: str, payload: AutoUniverseRequest, re
 @router.get("/api/perp-universes")
 async def perp_universes(request: Request, include_symbols: bool = False) -> dict:
     service = request.app.state.scanner
-    try:
-        return maybe_strip_symbols(service.perp_universe_summary(), include_symbols)
-    except Exception:
-        return {"exchanges": []}
+    return maybe_strip_symbols(service.perp_universe_summary(), include_symbols)
 
 
 @router.get("/api/spot-perp-universes")
@@ -812,10 +814,7 @@ async def auto_unified_universe(payload: UnifiedAutoUniverseRequest, request: Re
 
 @router.get("/api/telegram")
 async def telegram_status(request: Request) -> dict:
-    try:
-        return request.app.state.telegram.status()
-    except Exception:
-        return {"status": "initialized", "enabled": False}
+    return request.app.state.telegram.status()
 
 
 @router.post("/api/telegram")

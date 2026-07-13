@@ -5,11 +5,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ADD THIS LINE: Copy the frontend dashboard into the container workdir
-COPY spot-momentum-scanner.html .
-COPY manifest.webmanifest .
-COPY sw.js .
-
 COPY app ./app
 
 EXPOSE 8000

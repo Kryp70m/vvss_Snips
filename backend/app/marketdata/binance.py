@@ -169,9 +169,7 @@ class BinanceFuturesClient:
     async def fetch_open_interest(self, symbol: str) -> OpenInterestEvent | None:
         if self._session is None:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
-        
-        # Hardcoded to use the correct futures API endpoint to eliminate the 404 error
-        url = f"https://fapi.binance.com/fapi/v1/openInterest"
+        url = f"{self.rest_base}/fapi/v1/openInterest"
         try:
             async with self._session.get(url, params={"symbol": symbol}, ssl=self._ssl_context) as response:
                 response.raise_for_status()
